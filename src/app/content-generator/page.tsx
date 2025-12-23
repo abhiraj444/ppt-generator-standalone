@@ -155,6 +155,7 @@ function ContentGeneratorContent() {
       const newStructuredQuestion = { summary: summaryResponse.summary, images: imageUrls };
       setStructuredQuestion(newStructuredQuestion);
 
+      const existingCase = currentCaseId ? await LocalDataService.getCase(currentCaseId) : null;
       const caseData: Partial<LocalCase> = {
         id: currentCaseId || undefined,
         userId: user.id,
@@ -167,6 +168,7 @@ function ContentGeneratorContent() {
           structuredQuestion: newStructuredQuestion,
         },
         outputData: {
+          ...(existingCase?.outputData || {}),
           result: response,
           structuredQuestion: newStructuredQuestion
         }
@@ -201,6 +203,7 @@ function ContentGeneratorContent() {
         topic: topic,
       });
 
+      const existingCase = currentCaseId ? await LocalDataService.getCase(currentCaseId) : null;
       const caseData: Partial<LocalCase> = {
         id: currentCaseId || undefined,
         userId: user.id,
@@ -211,6 +214,7 @@ function ContentGeneratorContent() {
           topic: topic.trim(),
         },
         outputData: {
+          ...(existingCase?.outputData || {}),
           outline: data.outline,
           result: {
             answer: `Outline generated for topic: **${topic}**. Select topics below and generate the presentation.`,
@@ -247,6 +251,8 @@ function ContentGeneratorContent() {
         caseData.outputData = {
           ...caseData.outputData,
           outline: data.outline,
+          selectedTopics: data.outline,
+          suggestedTopics: data.outline,
           // Preserve structuredQuestion so images persist
           structuredQuestion: structuredQuestion
         };
