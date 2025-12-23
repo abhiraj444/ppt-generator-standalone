@@ -22,6 +22,13 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    
+    // Custom APK naming
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "MediGen-${variant.name}.apk"
+        }
+    }
 }
 
 repositories {
