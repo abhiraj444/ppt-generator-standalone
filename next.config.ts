@@ -1,12 +1,7 @@
-import type {NextConfig} from 'next';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: [
-    '@genkit-ai/core',
-    '@genkit-ai/googleai',
-    '@grpc/grpc-js',
-    'genkit',
-  ],
+  output: 'export',
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -14,6 +9,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',

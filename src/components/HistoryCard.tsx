@@ -1,18 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import type { Case } from '@/types';
+import type { LocalCase } from '@/lib/LocalDataService';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { FileText } from 'lucide-react';
 
 interface HistoryCardProps {
-  caseItem: Case;
+  caseItem: LocalCase;
 }
 
 export function HistoryCard({ caseItem }: HistoryCardProps) {
-  const date = new Date(caseItem.createdAt.toMillis()).toLocaleString();
+  const date = new Date(caseItem.createdAt).toLocaleString();
   const linkPath = caseItem.type === 'diagnosis' ? '/ai-diagnosis' : '/content-generator';
 
   return (

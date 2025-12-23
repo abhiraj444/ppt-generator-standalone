@@ -12,11 +12,10 @@ import {
   Wand2,
   Sun,
   Moon,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
-import { signOut } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,27 +37,16 @@ import { useTheme } from '@/context/ThemeContext';
 
 export default function Header() {
   const pathname = usePathname();
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const { toast } = useToast();
   const { theme, toggleTheme } = useTheme();
 
-  const handleLogout = async () => {
-    try {
-      if (auth) {
-        await signOut(auth);
-      }
-      toast({
-        title: 'Logged Out',
-        description: 'You have been successfully logged out.',
-      });
-    } catch (error) {
-      console.error('Logout failed:', error);
-      toast({
-        title: 'Logout Failed',
-        description: 'An error occurred during logout. Please try again.',
-        variant: 'destructive',
-      });
-    }
+  const handleLogout = () => {
+    logout();
+    toast({
+      title: 'Logged Out',
+      description: 'You have been successfully logged out.',
+    });
   };
 
   const navItems = [
@@ -145,6 +133,13 @@ export default function Header() {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings" className="flex items-center">
+                      <Settings className="mr-2 h-4 w-4" />
+                      <span>Settings</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Log out</span>
@@ -158,7 +153,7 @@ export default function Header() {
             </Button>
           )}
 
-          
+
         </div>
       </div>
     </header>

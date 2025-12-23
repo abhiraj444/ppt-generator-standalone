@@ -72,6 +72,8 @@ import { registerNotoSansRegular } from '@/lib/pdf-fonts/NotoSansRegular';
 import EnhancedSlideRenderer from './EnhancedSlideRenderer';
 import { registerNotoSansBold } from '@/lib/pdf-fonts/NotoSansBold';
 import { registerNotoSansItalic } from '@/lib/pdf-fonts/NotoSansItalic';
+import { useSettings } from '@/context/SettingsContext';
+import { ClientSideAiService } from '@/lib/ClientSideAiService';
 
 export type { Slide };
 
@@ -108,41 +110,41 @@ const renderContentItem = (item: ContentItem, index: number) => {
 
   return (
     <div key={index} className="mb-2 flex items-start gap-3 rounded-md border p-3">
-       <span className="text-muted-foreground pt-1">{getIcon()}</span>
-       <div className='w-full'>
-            {item.type === 'paragraph' && (
-                <p><BoldRenderer text={item.text} bold={item.bold} /></p>
-            )}
-            {item.type === 'bullet_list' && (
-                <ul className="list-disc pl-5">
-                {item.items.map((listItem, i) => <li key={i}><BoldRenderer text={listItem.text} bold={listItem.bold} /></li>)}
-                </ul>
-            )}
-            {item.type === 'numbered_list' && (
-                <ol className="list-decimal pl-5">
-                {item.items.map((listItem, i) => <li key={i}><BoldRenderer text={listItem.text} bold={listItem.bold} /></li>)}
-                </ol>
-            )}
-            {item.type === 'note' && (
-                <p className="text-sm italic text-muted-foreground">Note: {item.text.replace(/^Note:\s*/i, '')}</p>
-            )}
-            {item.type === 'table' && (
-                <ShadcnTable>
-                <TableHeader>
-                    <ShadcnTableRow>
-                    {item.headers.map((header, i) => <TableHead key={i}>{header}</TableHead>)}
-                    </ShadcnTableRow>
-                </TableHeader>
-                <TableBody>
-                    {item.rows.map((row, i) => (
-                    <ShadcnTableRow key={i}>
-                        {row.cells.map((cell, j) => <ShadcnTableCell key={j}>{cell}</ShadcnTableCell>)}
-                    </ShadcnTableRow>
-                    ))}
-                </TableBody>
-                </ShadcnTable>
-            )}
-        </div>
+      <span className="text-muted-foreground pt-1">{getIcon()}</span>
+      <div className='w-full'>
+        {item.type === 'paragraph' && (
+          <p><BoldRenderer text={item.text} bold={item.bold} /></p>
+        )}
+        {item.type === 'bullet_list' && (
+          <ul className="list-disc pl-5">
+            {item.items.map((listItem, i) => <li key={i}><BoldRenderer text={listItem.text} bold={listItem.bold} /></li>)}
+          </ul>
+        )}
+        {item.type === 'numbered_list' && (
+          <ol className="list-decimal pl-5">
+            {item.items.map((listItem, i) => <li key={i}><BoldRenderer text={listItem.text} bold={listItem.bold} /></li>)}
+          </ol>
+        )}
+        {item.type === 'note' && (
+          <p className="text-sm italic text-muted-foreground">Note: {item.text.replace(/^Note:\s*/i, '')}</p>
+        )}
+        {item.type === 'table' && (
+          <ShadcnTable>
+            <TableHeader>
+              <ShadcnTableRow>
+                {item.headers.map((header, i) => <TableHead key={i}>{header}</TableHead>)}
+              </ShadcnTableRow>
+            </TableHeader>
+            <TableBody>
+              {item.rows.map((row, i) => (
+                <ShadcnTableRow key={i}>
+                  {row.cells.map((cell, j) => <ShadcnTableCell key={j}>{cell}</ShadcnTableCell>)}
+                </ShadcnTableRow>
+              ))}
+            </TableBody>
+          </ShadcnTable>
+        )}
+      </div>
     </div>
   );
 };
@@ -193,12 +195,13 @@ export function SlideEditor({
   const [isRefreshModalOpen, setIsRefreshModalOpen] = useState(false);
   const [loadingSlides, setLoadingSlides] = useState<Set<number>>(new Set());
   const [isAddSectionModalOpen, setIsAddSectionModalOpen] = useState(false);
-  const [newTopicSuggestions, setNewTopicSuggestions] = useState<string[]>(initialSuggestedTopics);
-  const [usedTopics, setUsedTopics] = useState<string[]>(initialUsedTopics);
+  const [newTopicSuggestions, setNewTopicSuggestions] = useState<string[]>(initialSuggestedTopics || []);
+  const [usedTopics, setUsedTopics] = useState<string[]>(initialUsedTopics || []);
   const [customTopic, setCustomTopic] = useState('');
   const [selectedNewTopics, setSelectedNewTopics] = useState<string[]>([]);
   const [isSuggestingTopics, setIsSuggestingTopics] = useState(false);
   const { toast } = useToast();
+  const { apiKey } = useSettings();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -220,14 +223,14 @@ export function SlideEditor({
   useEffect(() => {
     setSlides(initialSlides);
     setSelectedIndices([]);
-    
+
     // Update used topics based on existing slides when slides change
     if (initialSlides.length > 0) {
       const existingTopics = initialSlides.map(slide => slide.title);
-      const updatedUsedTopics = Array.from(new Set([...initialUsedTopics, ...existingTopics]));
-      if (updatedUsedTopics.length > initialUsedTopics.length) {
+      const updatedUsedTopics = Array.from(new Set([...(initialUsedTopics || []), ...existingTopics]));
+      if (updatedUsedTopics.length > (initialUsedTopics?.length || 0)) {
         setUsedTopics(updatedUsedTopics);
-        onTopicsUpdate(initialSuggestedTopics, updatedUsedTopics);
+        onTopicsUpdate(initialSuggestedTopics || [], updatedUsedTopics);
       }
     }
   }, [initialSlides, initialUsedTopics, initialSuggestedTopics, onTopicsUpdate]);
@@ -249,28 +252,20 @@ export function SlideEditor({
   };
 
   const fetchNewTopicSuggestions = async () => {
-    if (!questionContext) {
-      toast({ title: 'Error', description: 'Missing question context to generate new topic.', variant: 'destructive' });
+    if (!apiKey) {
+      toast({ title: 'Error', description: 'API Key missing.', variant: 'destructive' });
       return;
     }
     setIsSuggestingTopics(true);
     try {
-      const response = await fetch('/api/content-generator', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'suggestTopics',
-          payload: {
-            question: questionContext,
-            existingTopics: [...outline, ...newTopicSuggestions],
-          }
-        }),
+      const data = await ClientSideAiService.suggestTopics(apiKey, {
+        question: questionContext,
+        topic: topic,
+        existingTopics: [...(outline || []), ...newTopicSuggestions],
       });
-      if (!response.ok) throw new Error('Failed to fetch suggestions');
-      const data = await response.json();
-      
+
       const incomingTopics = Array.isArray(data.topics) ? data.topics : [];
-      
+
       const updatedSuggestions = Array.from(new Set([...newTopicSuggestions, ...incomingTopics]));
       setNewTopicSuggestions(updatedSuggestions);
       onTopicsUpdate(updatedSuggestions, usedTopics);
@@ -293,6 +288,7 @@ export function SlideEditor({
   };
 
   const handleAddSelectedSlides = async () => {
+    if (!apiKey) return;
     const topicsToGenerate = [...selectedNewTopics];
     if (customTopic.trim()) {
       topicsToGenerate.push(customTopic.trim());
@@ -308,14 +304,14 @@ export function SlideEditor({
       title: topic,
       content: [] as ContentItem[]
     }));
-    
+
     const updatedSlidesWithPlaceholders = [...slides, ...placeholderSlides];
     setSlides(updatedSlidesWithPlaceholders);
     onSlidesUpdate(updatedSlidesWithPlaceholders);
-    
+
     setIsModifying(true);
     setIsAddSectionModalOpen(false);
-    
+
     // Scroll to bottom to show new placeholders
     setTimeout(() => {
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -323,29 +319,17 @@ export function SlideEditor({
 
     try {
       const slidePromises = topicsToGenerate.map(topic =>
-        fetch('/api/content-generator', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'generateSingleSlide',
-            payload: { topic },
-          }),
-        }).then(res => {
-          if (!res.ok) {
-            return res.text().then(text => { throw new Error(`Failed to generate slide for "${topic}": ${text}`) });
-          }
-          return res.json();
-        })
+        ClientSideAiService.generateSingleSlide(apiKey, topic)
       );
 
       const newSlides = await Promise.all(slidePromises);
-      
+
       // Calculate the updated slides
       let finalSlides: Slide[];
       setSlides(currentSlides => {
         const updatedSlides = [...currentSlides];
         const startIndex = currentSlides.length - topicsToGenerate.length;
-        
+
         // Replace placeholders with actual slides
         newSlides.forEach((slide, index) => {
           const targetIndex = startIndex + index;
@@ -355,11 +339,11 @@ export function SlideEditor({
             updatedSlides.push(slide);
           }
         });
-        
+
         finalSlides = updatedSlides;
         return updatedSlides;
       });
-      
+
       // Update parent component with final slides
       onSlidesUpdate(finalSlides!);
 
@@ -370,13 +354,7 @@ export function SlideEditor({
       toast({ title: 'Slides Added', description: `Successfully added ${newSlides.length} new slide(s).` });
     } catch (error) {
       console.error('Failed to add slides:', error);
-      let description = 'An unknown error occurred.';
-      if (error instanceof Error) {
-        description = error.message;
-      } else if (typeof error === 'string') {
-        description = error;
-      }
-      toast({ title: 'Error Adding Slides', description, variant: 'destructive' });
+      toast({ title: 'Error Adding Slides', description: 'Failed to generate slides.', variant: 'destructive' });
     } finally {
       setIsModifying(false);
     }
@@ -408,41 +386,25 @@ export function SlideEditor({
   };
 
   const handleModifySlides = async (action: 'expand_content' | 'replace_content' | 'expand_selected') => {
+    if (!apiKey) return;
     if (selectedIndices.length === 0) {
       toast({ title: 'No Sections Selected', description: 'Please select sections to modify.', variant: 'destructive' });
       return;
     }
-    
+
     // Set the selected slides as loading with shimmer effect
     const loadingSet = new Set(selectedIndices);
     setLoadingSlides(loadingSet);
-    
+
     setIsModifying(true);
     setIsRefreshModalOpen(false);
     try {
-      const response = await fetch('/api/content-generator', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'modifySlides',
-          payload: { slides, selectedIndices, action },
-        }),
+      const result = await ClientSideAiService.modifySlides(apiKey, {
+        slides,
+        selectedIndices,
+        action,
       });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error Response:', errorText);
-        try {
-          const errorJson = JSON.parse(errorText);
-          throw new Error(errorJson.error || 'Failed to modify slides');
-        } catch (e) {
-          throw new Error(`Server returned an error: ${errorText.substring(0, 100)}...`);
-        }
-      }
 
-      const result = await response.json();
-      console.log('Modified slides result:', result);
-      
       if (Array.isArray(result) && result.length > 0) {
         setSlides(result);
         onSlidesUpdate(result);
@@ -454,7 +416,7 @@ export function SlideEditor({
         });
       } else {
         setLoadingSlides(new Set()); // Reset loading state on error
-        throw new Error('Invalid response format from server');
+        throw new Error('Invalid response format from AI');
       }
     } catch (error) {
       console.error(`Slide modification failed for action: ${action}`, error);
@@ -493,224 +455,224 @@ export function SlideEditor({
   const handleExportToPdf = () => {
     setIsModifying(true);
     try {
-        // Initialize jsPDF document
-        const doc = new jsPDF();
-        // Register your custom fonts with jsPDF
-        registerNotoSansRegular(doc);
-        registerNotoSansBold(doc);
-        registerNotoSansItalic(doc);
-        // Set the default font for the document to 'NotoSans'
-        // This name 'NotoSans' must match the name used in registerNotoSansX functions
-        doc.setFont('NotoSans');
-        const margin = 20; // Page margin in mm
-        let currentY = margin; // Current Y position on the page
-        const pageHeight = doc.internal.pageSize.height; // Total page height
-        const pageWidth = doc.internal.pageSize.width; // Total page width
-        const contentWidth = pageWidth - 2 * margin; // Usable content width
+      // Initialize jsPDF document
+      const doc = new jsPDF();
+      // Register your custom fonts with jsPDF
+      registerNotoSansRegular(doc);
+      registerNotoSansBold(doc);
+      registerNotoSansItalic(doc);
+      // Set the default font for the document to 'NotoSans'
+      // This name 'NotoSans' must match the name used in registerNotoSansX functions
+      doc.setFont('NotoSans');
+      const margin = 20; // Page margin in mm
+      let currentY = margin; // Current Y position on the page
+      const pageHeight = doc.internal.pageSize.height; // Total page height
+      const pageWidth = doc.internal.pageSize.width; // Total page width
+      const contentWidth = pageWidth - 2 * margin; // Usable content width
 
-        // Define colors - Explicitly define as tuples
-        const titleColor = '#4A90E2'; // Blue
-        const paragraphColor = '#333333'; // Dark Gray
-        const listItemColor = '#333333'; // Dark Gray
-        const headerBgColor: [number, number, number] = [220, 230, 240]; // Light blue-gray for table headers (RGB)
-        const headerTextColor = '#2C3E50'; // Dark blue-gray for table headers (Hex, will be converted by jsPDF)
-        const rowEvenColor: [number, number, number] = [255, 255, 255]; // White for even rows (RGB)
-        const rowOddColor: [number, number, number] = [245, 245, 245]; // Very light gray for odd rows (RGB)
+      // Define colors - Explicitly define as tuples
+      const titleColor = '#4A90E2'; // Blue
+      const paragraphColor = '#333333'; // Dark Gray
+      const listItemColor = '#333333'; // Dark Gray
+      const headerBgColor: [number, number, number] = [220, 230, 240]; // Light blue-gray for table headers (RGB)
+      const headerTextColor = '#2C3E50'; // Dark blue-gray for table headers (Hex, will be converted by jsPDF)
+      const rowEvenColor: [number, number, number] = [255, 255, 255]; // White for even rows (RGB)
+      const rowOddColor: [number, number, number] = [245, 245, 245]; // Very light gray for odd rows (RGB)
 
-        // Function to add a new page and reset Y position to the top margin
-        const addNewPage = () => {
-            doc.addPage();
-            currentY = margin;
+      // Function to add a new page and reset Y position to the top margin
+      const addNewPage = () => {
+        doc.addPage();
+        currentY = margin;
+      };
+
+      const renderTextBlock = (doc: jsPDF, text: string, boldParts: string[] | undefined, x: number, y: number, maxWidth: number, fontSize: number, textColor: string): number => {
+        doc.setFontSize(fontSize);
+        doc.setTextColor(textColor);
+        const lineHeight = fontSize * 0.4; // Estimate line height
+
+        const segments: { text: string; isBold: boolean }[] = [];
+        const escapedBoldParts = (boldParts || []).map(bp => bp.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+        const regex = new RegExp(`(${escapedBoldParts.join('|')})`, 'g');
+        const parts = text.split(regex);
+
+        parts.forEach(part => {
+          if (part) {
+            const isBold = escapedBoldParts.includes(part);
+            segments.push({ text: part, isBold });
+          }
+        });
+
+        const lines: { text: string; isBold: boolean }[][] = [];
+        let currentLineSegments: { text: string; isBold: boolean }[] = [];
+        let currentLineText = '';
+
+        for (const segment of segments) {
+          const words = segment.text.split(/(\s+)/);
+
+          for (const word of words) {
+            if (!word) continue;
+
+            doc.setFont('NotoSans', segment.isBold ? 'bold' : 'normal');
+            const wordWidth = doc.getTextWidth(word);
+
+            if (doc.getTextWidth(currentLineText + word) > maxWidth && currentLineText !== '') {
+              lines.push(currentLineSegments);
+              currentLineSegments = [];
+              currentLineText = '';
+            }
+
+            currentLineSegments.push({ text: word, isBold: segment.isBold });
+            currentLineText += word;
+          }
+        }
+        if (currentLineSegments.length > 0) {
+          lines.push(currentLineSegments);
+        }
+
+        const estimatedHeight = lines.length * lineHeight;
+
+        if (currentY + estimatedHeight > pageHeight - margin) {
+          addNewPage();
+        }
+
+        const startYForBlock = currentY;
+
+        for (let i = 0; i < lines.length; i++) {
+          const lineSegments = lines[i];
+          let currentX = x;
+          const lineY = startYForBlock + (i * lineHeight);
+
+          for (const segment of lineSegments) {
+            doc.setFont('NotoSans', segment.isBold ? 'bold' : 'normal');
+            doc.text(segment.text, currentX, lineY);
+            currentX += doc.getTextWidth(segment.text);
+          }
+        }
+
+        currentY += estimatedHeight;
+        return estimatedHeight;
+      };
+
+      const renderTable = (doc: jsPDF, headers: string[], rows: { cells: string[] }[], x: number, y: number, maxWidth: number, fontSize: number) => {
+        doc.setFontSize(fontSize);
+        const tableLineHeight = fontSize * 0.4;
+        const cellPadding = 2;
+        const numColumns = headers.length;
+        const colWidth = maxWidth / numColumns;
+
+        const drawTableHeaders = () => {
+          doc.setFont('NotoSans', 'bold');
+          let headerX = x;
+          let maxHeaderHeight = tableLineHeight + 2 * cellPadding;
+
+          headers.forEach(headerText => {
+            const lines = doc.splitTextToSize(headerText, colWidth - 2 * cellPadding);
+            maxHeaderHeight = Math.max(maxHeaderHeight, lines.length * tableLineHeight + 2 * cellPadding);
+          });
+
+          headers.forEach(headerText => {
+            doc.setFillColor(headerBgColor[0], headerBgColor[1], headerBgColor[2]);
+            doc.rect(headerX, currentY, colWidth, maxHeaderHeight, 'F');
+            doc.setTextColor(headerTextColor);
+            const lines = doc.splitTextToSize(headerText, colWidth - 2 * cellPadding);
+            doc.text(lines, headerX + cellPadding, currentY + cellPadding + (maxHeaderHeight - lines.length * tableLineHeight) / 2);
+            headerX += colWidth;
+          });
+          doc.setFont('NotoSans', 'normal');
+          doc.setTextColor(paragraphColor);
+          currentY += maxHeaderHeight;
         };
 
-        const renderTextBlock = (doc: jsPDF, text: string, boldParts: string[] | undefined, x: number, y: number, maxWidth: number, fontSize: number, textColor: string): number => {
-            doc.setFontSize(fontSize);
-            doc.setTextColor(textColor);
-            const lineHeight = fontSize * 0.4; // Estimate line height
+        if (currentY + (tableLineHeight + 2 * cellPadding) > pageHeight - margin) {
+          addNewPage();
+        }
+        drawTableHeaders();
 
-            const segments: { text: string; isBold: boolean }[] = [];
-            const escapedBoldParts = (boldParts || []).map(bp => bp.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
-            const regex = new RegExp(`(${escapedBoldParts.join('|')})`, 'g');
-            const parts = text.split(regex);
+        rows.forEach((row, rowIndex) => {
+          let rowHeight = tableLineHeight + 2 * cellPadding;
 
-            parts.forEach(part => {
-                if (part) {
-                    const isBold = escapedBoldParts.includes(part);
-                    segments.push({ text: part, isBold });
-                }
-            });
+          row.cells.forEach(cellText => {
+            const lines = doc.splitTextToSize(cellText, colWidth - 2 * cellPadding);
+            rowHeight = Math.max(rowHeight, lines.length * tableLineHeight + 2 * cellPadding);
+          });
 
-            const lines: { text: string; isBold: boolean }[][] = [];
-            let currentLineSegments: { text: string; isBold: boolean }[] = [];
-            let currentLineText = '';
-
-            for (const segment of segments) {
-                const words = segment.text.split(/(\s+)/);
-
-                for (const word of words) {
-                    if (!word) continue;
-
-                    doc.setFont('NotoSans', segment.isBold ? 'bold' : 'normal');
-                    const wordWidth = doc.getTextWidth(word);
-
-                    if (doc.getTextWidth(currentLineText + word) > maxWidth && currentLineText !== '') {
-                        lines.push(currentLineSegments);
-                        currentLineSegments = [];
-                        currentLineText = '';
-                    }
-
-                    currentLineSegments.push({ text: word, isBold: segment.isBold });
-                    currentLineText += word;
-                }
-            }
-            if (currentLineSegments.length > 0) {
-                lines.push(currentLineSegments);
-            }
-
-            const estimatedHeight = lines.length * lineHeight;
-
-            if (currentY + estimatedHeight > pageHeight - margin) {
-                addNewPage();
-            }
-
-            const startYForBlock = currentY;
-
-            for (let i = 0; i < lines.length; i++) {
-                const lineSegments = lines[i];
-                let currentX = x;
-                const lineY = startYForBlock + (i * lineHeight);
-
-                for (const segment of lineSegments) {
-                    doc.setFont('NotoSans', segment.isBold ? 'bold' : 'normal');
-                    doc.text(segment.text, currentX, lineY);
-                    currentX += doc.getTextWidth(segment.text);
-                }
-            }
-
-            currentY += estimatedHeight;
-            return estimatedHeight;
-        };
-
-        const renderTable = (doc: jsPDF, headers: string[], rows: { cells: string[] }[], x: number, y: number, maxWidth: number, fontSize: number) => {
-            doc.setFontSize(fontSize);
-            const tableLineHeight = fontSize * 0.4;
-            const cellPadding = 2;
-            const numColumns = headers.length;
-            const colWidth = maxWidth / numColumns;
-
-            const drawTableHeaders = () => {
-                doc.setFont('NotoSans', 'bold');
-                let headerX = x;
-                let maxHeaderHeight = tableLineHeight + 2 * cellPadding;
-
-                headers.forEach(headerText => {
-                    const lines = doc.splitTextToSize(headerText, colWidth - 2 * cellPadding);
-                    maxHeaderHeight = Math.max(maxHeaderHeight, lines.length * tableLineHeight + 2 * cellPadding);
-                });
-
-                headers.forEach(headerText => {
-                    doc.setFillColor(headerBgColor[0], headerBgColor[1], headerBgColor[2]);
-                    doc.rect(headerX, currentY, colWidth, maxHeaderHeight, 'F');
-                    doc.setTextColor(headerTextColor);
-                    const lines = doc.splitTextToSize(headerText, colWidth - 2 * cellPadding);
-                    doc.text(lines, headerX + cellPadding, currentY + cellPadding + (maxHeaderHeight - lines.length * tableLineHeight) / 2);
-                    headerX += colWidth;
-                });
-                doc.setFont('NotoSans', 'normal');
-                doc.setTextColor(paragraphColor);
-                currentY += maxHeaderHeight;
-            };
-
-            if (currentY + (tableLineHeight + 2 * cellPadding) > pageHeight - margin) {
-                addNewPage();
-            }
+          if (currentY + rowHeight > pageHeight - margin) {
+            addNewPage();
             drawTableHeaders();
+          }
 
-            rows.forEach((row, rowIndex) => {
-                let rowHeight = tableLineHeight + 2 * cellPadding;
+          let cellX = x;
+          const fillColor = rowIndex % 2 === 0 ? rowEvenColor : rowOddColor;
 
-                row.cells.forEach(cellText => {
-                    const lines = doc.splitTextToSize(cellText, colWidth - 2 * cellPadding);
-                    rowHeight = Math.max(rowHeight, lines.length * tableLineHeight + 2 * cellPadding);
-                });
-
-                if (currentY + rowHeight > pageHeight - margin) {
-                    addNewPage();
-                    drawTableHeaders();
-                }
-
-                let cellX = x;
-                const fillColor = rowIndex % 2 === 0 ? rowEvenColor : rowOddColor;
-
-                row.cells.forEach(cellText => {
-                    doc.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
-                    doc.rect(cellX, currentY, colWidth, rowHeight, 'F');
-                    doc.rect(cellX, currentY, colWidth, rowHeight, 'S');
-                    doc.setTextColor(listItemColor);
-                    doc.setFont('NotoSans', 'normal');
-                    const lines = doc.splitTextToSize(cellText, colWidth - 2 * cellPadding);
-                    doc.text(lines, cellX + cellPadding, currentY + cellPadding + (rowHeight - lines.length * tableLineHeight) / 2);
-                    cellX += colWidth;
-                });
-                currentY += rowHeight;
-            });
-        };
-
-        slides.forEach((slide, slideIndex) => {
-            if (slideIndex > 0) {
-                addNewPage();
-            }
-
-            doc.setFontSize(18);
-            doc.setFont('NotoSans', 'bold');
-            doc.setTextColor(titleColor);
-            const titleLines = doc.splitTextToSize(slide.title, contentWidth);
-            const titleHeight = titleLines.length * 18 * 0.4;
-
-            if (currentY + titleHeight > pageHeight - margin) {
-                addNewPage();
-            }
-            doc.text(titleLines, margin, currentY);
-            currentY += titleHeight + 15;
+          row.cells.forEach(cellText => {
+            doc.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
+            doc.rect(cellX, currentY, colWidth, rowHeight, 'F');
+            doc.rect(cellX, currentY, colWidth, rowHeight, 'S');
+            doc.setTextColor(listItemColor);
             doc.setFont('NotoSans', 'normal');
+            const lines = doc.splitTextToSize(cellText, colWidth - 2 * cellPadding);
+            doc.text(lines, cellX + cellPadding, currentY + cellPadding + (rowHeight - lines.length * tableLineHeight) / 2);
+            cellX += colWidth;
+          });
+          currentY += rowHeight;
+        });
+      };
 
-            slide.content.forEach(block => {
-                if (block.type === 'paragraph') {
-                    renderTextBlock(doc, block.text, block.bold, margin, currentY, contentWidth, 12, paragraphColor);
-                    currentY += 10;
-                } else if (block.type === 'bullet_list' || block.type === 'numbered_list') {
-                    const listItemIndent = 10;
-                    const itemSpacing = 3;
-                    doc.setFontSize(11);
+      slides.forEach((slide, slideIndex) => {
+        if (slideIndex > 0) {
+          addNewPage();
+        }
 
-                    block.items.forEach((item, index) => {
-                        const prefix = block.type === 'bullet_list' ? '• ' : `${index + 1}. `;
-                        const itemText = prefix + item.text;
-                        const boldParts = item.bold || [];
+        doc.setFontSize(18);
+        doc.setFont('NotoSans', 'bold');
+        doc.setTextColor(titleColor);
+        const titleLines = doc.splitTextToSize(slide.title, contentWidth);
+        const titleHeight = titleLines.length * 18 * 0.4;
 
-                        const itemHeight = renderTextBlock(doc, itemText, boldParts, margin + listItemIndent, currentY, contentWidth - listItemIndent, 11, listItemColor);
-                        currentY += itemSpacing;
-                    });
-                    currentY += 10;
-                } else if (block.type === 'table') {
-                    renderTable(doc, block.headers, block.rows, margin, currentY, contentWidth, 10);
-                    currentY += 10;
-                }
+        if (currentY + titleHeight > pageHeight - margin) {
+          addNewPage();
+        }
+        doc.text(titleLines, margin, currentY);
+        currentY += titleHeight + 15;
+        doc.setFont('NotoSans', 'normal');
+
+        slide.content.forEach(block => {
+          if (block.type === 'paragraph') {
+            renderTextBlock(doc, block.text, block.bold, margin, currentY, contentWidth, 12, paragraphColor);
+            currentY += 10;
+          } else if (block.type === 'bullet_list' || block.type === 'numbered_list') {
+            const listItemIndent = 10;
+            const itemSpacing = 3;
+            doc.setFontSize(11);
+
+            block.items.forEach((item, index) => {
+              const prefix = block.type === 'bullet_list' ? '• ' : `${index + 1}. `;
+              const itemText = prefix + item.text;
+              const boldParts = item.bold || [];
+
+              const itemHeight = renderTextBlock(doc, itemText, boldParts, margin + listItemIndent, currentY, contentWidth - listItemIndent, 11, listItemColor);
+              currentY += itemSpacing;
             });
+            currentY += 10;
+          } else if (block.type === 'table') {
+            renderTable(doc, block.headers, block.rows, margin, currentY, contentWidth, 10);
+            currentY += 10;
+          }
         });
+      });
 
-        const docName = `${topic.replace(/\s+/g, '_') || 'document'}.pdf`;
-        doc.save(docName);
-        toast({
-          title: 'Document Downloaded',
-          description: 'Your PDF document has been downloaded locally.',
-        });
+      const docName = `${topic.replace(/\s+/g, '_') || 'document'}.pdf`;
+      doc.save(docName);
+      toast({
+        title: 'Document Downloaded',
+        description: 'Your PDF document has been downloaded locally.',
+      });
 
     } catch (error) {
-        console.error('Error generating PDF:', error);
-        toast({ title: 'Error', description: 'Failed to generate PDF.', variant: 'destructive' });
+      console.error('Error generating PDF:', error);
+      toast({ title: 'Error', description: 'Failed to generate PDF.', variant: 'destructive' });
     } finally {
-        setIsModifying(false);
+      setIsModifying(false);
     }
   };
 
@@ -741,20 +703,20 @@ export function SlideEditor({
       const createTextRuns = (text: string, bold?: string[]): TextRun[] => {
         if (!text) return [new TextRun({ text: '' })];
         if (!bold || bold.length === 0) {
-            return [new TextRun({ text })];
+          return [new TextRun({ text })];
         }
-  
+
         const boldEscaped = bold.map(b => b.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
         const regex = new RegExp(`(${boldEscaped.join('|')})`, 'g');
         const parts = text.split(regex).filter(Boolean);
-  
+
         return parts.map(part => {
-            return new TextRun({ text: part, bold: bold.includes(part) });
+          return new TextRun({ text: part, bold: bold.includes(part) });
         });
       };
-  
+
       const docChildren: (Paragraph | Table)[] = [];
-  
+
       slides.forEach((slide) => {
         docChildren.push(
           new Paragraph({
@@ -763,7 +725,7 @@ export function SlideEditor({
             spacing: { after: 200 },
           })
         );
-  
+
         slide.content.forEach((item) => {
           switch (item.type) {
             case 'paragraph':
@@ -791,7 +753,7 @@ export function SlideEditor({
           }
         });
       });
-  
+
       const doc = new Document({ numbering: { config: [{ levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.LEFT }], reference: 'default-numbering' }] }, sections: [{ children: docChildren }] });
       const blob = await Packer.toBlob(doc);
       const docName = `${topic.replace(/\s+/g, '_') || 'document'}.docx`;
@@ -829,15 +791,15 @@ export function SlideEditor({
       ></div>
       <Card className="border shadow-sm w-full max-w-full overflow-x-hidden">
         <CardHeader>
-           <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <CardTitle>Content Editor</CardTitle>
-                <CardDescription>Review, edit, and reorder your content before exporting.</CardDescription>
-              </div>
-              <Button variant="outline" onClick={onNewCase} disabled={isModifying} className="w-full shrink-0 sm:w-auto">
-                  <PlusCircle className="mr-2 h-4 w-4" /> New Case
-              </Button>
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <CardTitle>Content Editor</CardTitle>
+              <CardDescription>Review, edit, and reorder your content before exporting.</CardDescription>
             </div>
+            <Button variant="outline" onClick={onNewCase} disabled={isModifying} className="w-full shrink-0 sm:w-auto">
+              <PlusCircle className="mr-2 h-4 w-4" /> New Case
+            </Button>
+          </div>
           <div className="flex flex-col gap-4 pt-4 md:flex-row md:items-end">
             <div className="flex-grow space-y-1">
               <Label htmlFor="topic-refresh" className="text-xs font-medium text-muted-foreground">Presentation Topic</Label>
@@ -865,32 +827,32 @@ export function SlideEditor({
               <div key={slide.title} className="relative w-full max-w-full mobile-slide overflow-x-hidden">
                 {/* Selection Overlay */}
                 <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10">
-                  <Checkbox 
-                    id={`select-${index}`} 
-                    checked={selectedIndices.includes(index)} 
-                    onCheckedChange={(checked) => handleSelectionChange(index, !!checked)} 
+                  <Checkbox
+                    id={`select-${index}`}
+                    checked={selectedIndices.includes(index)}
+                    onCheckedChange={(checked) => handleSelectionChange(index, !!checked)}
                     aria-label={`Select slide ${index + 1}`}
                     className="bg-white/20 border-white/40 data-[state=checked]:bg-white data-[state=checked]:text-black"
                   />
                 </div>
-                
+
                 {/* Top Action Buttons - positioned above slide title */}
                 {selectedIndices.includes(index) && (
                   <div className="absolute top-2 left-1/2 transform -translate-x-1/2 -translate-y-2 z-20 flex space-x-2">
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleModifySlides('replace_content')} 
+                      onClick={() => handleModifySlides('replace_content')}
                       disabled={isModifying}
                       className="flex items-center gap-2 text-sm bg-background/95 backdrop-blur-sm hover:bg-background/100 border border-border shadow-lg transition-all duration-200 px-3 py-2 rounded-lg hover:shadow-xl"
                     >
                       <RefreshCw className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                       <span className="font-medium text-foreground">Refresh</span>
                     </Button>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
-                      onClick={() => handleModifySlides('expand_selected')} 
+                      onClick={() => handleModifySlides('expand_selected')}
                       disabled={isModifying}
                       className="flex items-center gap-2 text-sm bg-background/95 backdrop-blur-sm hover:bg-background/100 border border-border shadow-lg transition-all duration-200 px-3 py-2 rounded-lg hover:shadow-xl"
                     >
@@ -899,19 +861,19 @@ export function SlideEditor({
                     </Button>
                   </div>
                 )}
-                
+
                 {/* Delete Button - Top Right */}
                 <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10">
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    onClick={() => removeSlide(index)} 
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeSlide(index)}
                     className="h-7 w-7 sm:h-8 sm:w-8 bg-red-500/20 hover:bg-red-500/30 text-red-200 hover:text-white border border-red-400/30 transition-all duration-200"
                   >
                     <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
                   </Button>
                 </div>
-                
+
                 <EnhancedSlideRenderer
                   slide={slide}
                   index={index}
@@ -940,13 +902,13 @@ export function SlideEditor({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {newTopicSuggestions.map((topic, index) => (
                       <div key={index} className={`flex items-center space-x-2 ${(usedTopics.includes(topic) || slides.some(slide => slide.title === topic)) ? 'opacity-50' : ''}`}>
-                        <Checkbox 
-                          id={`new-topic-${index}`} 
-                          checked={selectedNewTopics.includes(topic) || usedTopics.includes(topic) || slides.some(slide => slide.title === topic)} 
+                        <Checkbox
+                          id={`new-topic-${index}`}
+                          checked={selectedNewTopics.includes(topic) || usedTopics.includes(topic) || slides.some(slide => slide.title === topic)}
                           disabled={usedTopics.includes(topic) || slides.some(slide => slide.title === topic)}
                           onCheckedChange={(checked) => {
                             setSelectedNewTopics(prev => checked ? [...prev, topic] : prev.filter(t => t !== topic));
-                          }} 
+                          }}
                         />
                         <Label htmlFor={`new-topic-${index}`} className={`font-normal ${(usedTopics.includes(topic) || slides.some(slide => slide.title === topic)) ? 'line-through text-muted-foreground' : ''}`}>
                           {topic}

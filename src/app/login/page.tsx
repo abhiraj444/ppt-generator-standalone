@@ -2,13 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  GoogleAuthProvider,
-  signInWithPopup,
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -28,10 +21,11 @@ import { useAuth } from '@/hooks/useAuth';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, login, signup } = useAuth();
 
   useEffect(() => {
     if (user) {
@@ -40,47 +34,32 @@ export default function LoginPage() {
   }, [user, router]);
 
   const handleAuthAction = async (action: 'login' | 'signup') => {
-    if (!auth) return;
     setIsLoading(true);
     try {
       if (action === 'login') {
-        await signInWithEmailAndPassword(auth, email, password);
-        toast({ title: 'Login Successful', description: 'Welcome back!' });
+        const success = await login(email, password);
+        if (success) {
+          toast({ title: 'Login Successful', description: 'Welcome back!' });
+          router.push('/');
+        } else {
+          toast({ title: 'Login Failed', description: 'Invalid email or password.', variant: 'destructive' });
+        }
       } else {
-        await createUserWithEmailAndPassword(auth, email, password);
-        toast({ title: 'Signup Successful', description: 'Welcome to MediGen!' });
+        const success = await signup(email, password, displayName || email.split('@')[0]);
+        if (success) {
+          toast({ title: 'Signup Successful', description: 'Welcome to MediGen!' });
+          router.push('/');
+        } else {
+          toast({ title: 'Signup Failed', description: 'User already exists.', variant: 'destructive' });
+        }
       }
-      router.push('/');
     } catch (error: any) {
       console.error(`${action} failed:`, error);
       toast({
         title: `${action === 'login' ? 'Login' : 'Signup'} Failed`,
-        description: error.message,
+        description: 'An unexpected error occurred.',
         variant: 'destructive',
       });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleSignIn = async () => {
-    if (!auth) return;
-    setIsLoading(true);
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      toast({ title: 'Login Successful', description: 'Welcome!' });
-      // The useEffect will handle the redirect to '/'
-    } catch (error: any) {
-      console.error('Google sign-in failed:', error);
-      // Don't show an error toast if the user simply closes the popup
-      if (error.code !== 'auth/popup-closed-by-user') {
-        toast({
-          title: 'Google Sign-in Failed',
-          description: error.message,
-          variant: 'destructive',
-        });
-      }
     } finally {
       setIsLoading(false);
     }
@@ -141,10 +120,6 @@ export default function LoginPage() {
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Login
               </Button>
-               <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} disabled={isLoading} aria-label="Continue with Google">
-                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.5 173.5 58.1l-65.2 64.2C335.5 97.2 293.5 80 248 80c-82.6 0-150 67.4-150 150s67.4 150 150 150c94.9 0 131.3-64.4 135.2-97.9H248v-65.3h235.6c4.2 24.3 6.4 50.1 6.4 77.1z"></path></svg>}
-                Continue with Google
-              </Button>
             </CardFooter>
           </Card>
         </TabsContent>
@@ -157,6 +132,17 @@ export default function LoginPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="signup-name">Display Name</Label>
+                <Input
+                  id="signup-name"
+                  type="text"
+                  placeholder="John Doe"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  disabled={isLoading}
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="signup-email">Email</Label>
                 <Input
@@ -187,10 +173,6 @@ export default function LoginPage() {
               >
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign Up
-              </Button>
-              <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} disabled={isLoading}>
-                 {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.5 173.5 58.1l-65.2 64.2C335.5 97.2 293.5 80 248 80c-82.6 0-150 67.4-150 150s67.4 150 150 150c94.9 0 131.3-64.4 135.2-97.9H248v-65.3h235.6c4.2 24.3 6.4 50.1 6.4 77.1z"></path></svg>}
-                 Continue with Google
               </Button>
             </CardFooter>
           </Card>

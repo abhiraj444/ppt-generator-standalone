@@ -1,9 +1,5 @@
 'use client';
 
-import type { Timestamp } from 'firebase/firestore';
-import type { AiDiagnosisOutput } from '@/ai/flows/ai-diagnosis';
-import type { AnswerClinicalQuestionOutput } from '@/ai/flows/answer-clinical-question';
-
 // For structured slide content
 export interface ParagraphContent {
     type: 'paragraph';
@@ -50,7 +46,7 @@ interface BaseCase {
     id: string;
     userId: string;
     title: string;
-    createdAt: Timestamp;
+    createdAt: number; // Changed from Timestamp to number (epoch)
 }
 
 export interface DiagnosisCase extends BaseCase {
@@ -61,8 +57,8 @@ export interface DiagnosisCase extends BaseCase {
         structuredQuestion?: StructuredQuestion;
     };
     outputData: {
-        diagnoses: AiDiagnosisOutput;
-        clinicalAnswer: AnswerClinicalQuestionOutput | null;
+        diagnoses: any[]; // Simplified for local usage
+        clinicalAnswer: any | null;
     };
 }
 
@@ -76,7 +72,7 @@ export interface ContentCase extends BaseCase {
         structuredQuestion?: StructuredQuestion;
     };
     outputData: {
-        result: AnswerClinicalQuestionOutput;
+        result: any;
         slides: Slide[] | null;
     };
 }

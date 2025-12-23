@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
-import { type Case } from '@/types';
+import { LocalDataService, type LocalCase } from '@/lib/LocalDataService';
 import { HistoryCard } from '@/components/HistoryCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
@@ -13,7 +11,7 @@ import { Loader2 } from 'lucide-react';
 export default function HistoryPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [cases, setCases] = useState<Case[]>([]);
+  const [cases, setCases] = useState<LocalCase[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,26 +23,21 @@ export default function HistoryPage() {
   useEffect(() => {
     if (!user) return;
 
-    setLoading(true);
-    const casesRef = collection(db, 'cases');
-    const q = query(
-      casesRef,
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
+    const loadCases = async () => {
+      setLoading(true);
+      try {
+        const casesData = await LocalDataService.getUserCases(user.id);
+        setCases(casesData);
+      } catch (error) {
+        console.error('Failed to load cases:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const casesData: Case[] = [];
-      querySnapshot.forEach((doc) => {
-        casesData.push({ id: doc.id, ...doc.data() } as Case);
-      });
-      setCases(casesData);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    loadCases();
   }, [user]);
-  
+
   if (authLoading || (!user)) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center">
@@ -61,23 +54,13 @@ export default function HistoryPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <Card className="shadow-lg max-w-2xl mx-auto">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  Case is being loaded...
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Please wait while your case history is loaded.
-                </p>
-              </CardContent>
-            </Card>
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
           ) : cases.length > 0 ? (
             <div className="space-y-4">
               {cases.map((caseItem) => (
-                <HistoryCard key={caseItem.id} caseItem={caseItem} />
+                <HistoryCard key={caseItem.id} caseItem={caseItem as any} />
               ))}
             </div>
           ) : (

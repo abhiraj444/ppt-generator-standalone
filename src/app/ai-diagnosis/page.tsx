@@ -1,10 +1,7 @@
 'use client';
 
-import { useState, type ChangeEvent, type ClipboardEvent, useEffect } from 'react';
+import { useState, type ChangeEvent, type ClipboardEvent, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { aiDiagnosis, type AiDiagnosisOutput } from '@/ai/flows/ai-diagnosis';
-import { summarizeQuestion } from '@/ai/flows/summarize-question';
-import { answerClinicalQuestion, type AnswerClinicalQuestionOutput } from '@/ai/flows/answer-clinical-question';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,29 +10,29 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DiagnosisCard } from '@/components/DiagnosisCard';
-import { FileText, Loader2, Upload, PlusCircle, BrainCircuit, Lightbulb, Copy, X } from 'lucide-react';
+import { FileText, Loader2, Upload, PlusCircle, BrainCircuit, Lightbulb, Copy, X, Settings } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { db, storage } from '@/lib/firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { v4 as uuidv4 } from 'uuid';
-import { collection, serverTimestamp, doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { useSettings } from '@/context/SettingsContext';
+import { LocalDataService, type LocalCase } from '@/lib/LocalDataService';
+import { ClientSideAiService } from '@/lib/ClientSideAiService';
 import type { StructuredQuestion } from '@/types';
 import { QuestionDisplay } from '@/components/QuestionDisplay';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import Header from '@/components/Header';
+import Link from 'next/link';
 
-export default function AiDiagnosisPage() {
+function AiDiagnosisContent() {
   const [patientData, setPatientData] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [results, setResults] = useState<AiDiagnosisOutput | null>(null);
-  const [clinicalAnswer, setClinicalAnswer] = useState<AnswerClinicalQuestionOutput | null>(null);
+  const [results, setResults] = useState<any[] | null>(null);
+  const [clinicalAnswer, setClinicalAnswer] = useState<any | null>(null);
   const [structuredQuestion, setStructuredQuestion] = useState<StructuredQuestion | null>(null);
   const [currentCaseId, setCurrentCaseId] = useState<string | null>(null);
 
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
+  const { apiKey, isConfigured } = useSettings();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -51,10 +48,8 @@ export default function AiDiagnosisPage() {
       const loadCase = async () => {
         setIsLoading(true);
         try {
-          const caseRef = doc(db, 'cases', caseId);
-          const caseSnap = await getDoc(caseRef);
-          if (caseSnap.exists() && caseSnap.data().userId === user.uid) {
-            const caseData = caseSnap.data();
+          const caseData = await LocalDataService.getCase(caseId);
+          if (caseData && caseData.userId === user.id) {
             setPatientData(caseData.inputData.patientData || '');
             if (caseData.inputData.structuredQuestion) {
               setStructuredQuestion({
@@ -65,18 +60,8 @@ export default function AiDiagnosisPage() {
               setStructuredQuestion(null);
             }
             setFilePreviews(caseData.inputData.supportingDocuments || []);
-
-            if (caseData.outputDataUrl) {
-              const response = await fetch(caseData.outputDataUrl);
-              const outputData = await response.json();
-              setResults(outputData.diagnoses || null);
-              setClinicalAnswer(outputData.clinicalAnswer || null);
-            } else {
-              // Handle older data structure for backward compatibility
-              setResults(caseData.outputData?.diagnoses || null);
-              setClinicalAnswer(caseData.outputData?.clinicalAnswer || null);
-            }
-
+            setResults(caseData.outputData?.diagnoses || null);
+            setClinicalAnswer(caseData.outputData?.clinicalAnswer || null);
             setCurrentCaseId(caseId);
             toast({ title: 'Case Loaded', description: `Successfully loaded case: ${caseData.title}` });
           } else {
@@ -117,10 +102,7 @@ export default function AiDiagnosisPage() {
         if (file) {
           setFiles(prev => [...prev, file]);
           setFilePreviews(prev => [...prev, URL.createObjectURL(file)]);
-          toast({
-            title: 'Image Pasted',
-            description: `An image from the clipboard has been added to supporting documents.`,
-          });
+          toast({ title: 'Image Pasted', description: 'Pasted image from clipboard.' });
           break;
         }
       }
@@ -138,100 +120,62 @@ export default function AiDiagnosisPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user) {
-      toast({ title: 'Not Authenticated', description: 'You must be logged in.', variant: 'destructive' });
-      return;
-    }
-    if (!patientData.trim() && files.length === 0) {
-      toast({
-        title: 'Input Required',
-        description: 'Please enter patient history or upload a supporting document.',
-        variant: 'destructive',
-      });
+    if (!user) return;
+    if (!isConfigured) {
+      toast({ title: 'API Key Missing', description: 'Please set your Gemini API Key in Settings.', variant: 'destructive' });
       return;
     }
     setIsLoading(true);
-    setResults(null);
-    setClinicalAnswer(null);
-    setStructuredQuestion(null);
     try {
-      const supportingDocumentUrls = await Promise.all(
-        files.map(async (file) => {
-          const storageRef = ref(storage, `uploads/${user.uid}/${uuidv4()}-${file.name}`);
-          await uploadBytes(storageRef, file);
-          return getDownloadURL(storageRef);
-        })
-      );
+      const imageUrls = await Promise.all(files.map(file => LocalDataService.saveFile(file, user.id)));
+      const images = await Promise.all(files.map(fileToDataUri));
 
-      const supportingDocuments = await Promise.all(files.map(fileToDataUri));
-
-      const [diagnosisResults, summaryResponse, answerResponse] = await Promise.all([
-        aiDiagnosis({
-          patientData: patientData.trim() ? patientData : undefined,
-          supportingDocuments: supportingDocuments.length > 0 ? supportingDocuments : undefined,
-        }),
-        summarizeQuestion({
-          question: patientData.trim() ? patientData : undefined,
-          images: supportingDocuments.length > 0 ? supportingDocuments : undefined,
-        }),
-        answerClinicalQuestion({
-          question: patientData.trim() ? patientData : undefined,
-          images: supportingDocuments.length > 0 ? supportingDocuments : undefined,
-        })
+      const [diagnosisResponse, answerResponse, summaryResponse] = await Promise.all([
+        ClientSideAiService.generateDiagnosis(apiKey, patientData.trim() || undefined, images),
+        ClientSideAiService.answerClinicalQuestion(apiKey, patientData.trim() || undefined, images),
+        ClientSideAiService.summarizeQuestion(apiKey, patientData.trim() || undefined, images)
       ]);
-      setResults(diagnosisResults);
+
+      setResults(diagnosisResponse);
       setClinicalAnswer(answerResponse);
-      const newStructuredQuestion = { summary: summaryResponse.summary, images: supportingDocumentUrls };
+      const newStructuredQuestion = { summary: summaryResponse.summary, images: imageUrls };
       setStructuredQuestion(newStructuredQuestion);
-      const title = diagnosisResults[0]?.diagnosis || answerResponse?.topic || 'New Diagnosis Case';
-      const outputData = {
-        diagnoses: diagnosisResults,
-        clinicalAnswer: answerResponse,
-      };
 
-      // Determine the case ID (new or existing)
-      const caseId = currentCaseId || doc(collection(db, 'cases')).id;
-
-      // Upload the output data to storage
-      const outputDataString = JSON.stringify(outputData);
-      const outputDataBlob = new Blob([outputDataString], { type: 'application/json' });
-      const storageRef = ref(storage, `outputs/${user.uid}/${caseId}.json`);
-      await uploadBytes(storageRef, outputDataBlob);
-      const outputDataUrl = await getDownloadURL(storageRef);
-
-      const caseData = {
-        userId: user.uid,
-        type: 'diagnosis' as const,
-        title,
-        createdAt: serverTimestamp(),
+      const caseData: Partial<LocalCase> = {
+        id: currentCaseId || undefined,
+        userId: user.id,
+        type: 'diagnosis',
+        title: summaryResponse.summary,
         inputData: {
           patientData: patientData.trim() || null,
-          supportingDocuments: supportingDocumentUrls,
+          supportingDocuments: imageUrls,
           structuredQuestion: newStructuredQuestion,
         },
-        outputDataUrl: outputDataUrl,
+        outputData: {
+          diagnoses: diagnosisResponse,
+          clinicalAnswer: answerResponse,
+        }
       };
 
-      if (currentCaseId) {
-        const caseRef = doc(db, 'cases', currentCaseId);
-        await updateDoc(caseRef, caseData);
-        toast({ title: 'Case Updated', description: 'Your case has been updated in your history.' });
-      } else {
-        const caseRef = doc(db, 'cases', caseId);
-        await setDoc(caseRef, caseData);
-        setCurrentCaseId(caseId);
-        toast({ title: 'Case Saved', description: 'Your diagnosis case has been saved to your history.' });
-      }
+      const savedId = await LocalDataService.saveCase(caseData);
+      if (!currentCaseId) setCurrentCaseId(savedId);
+      toast({ title: 'Case Saved', description: 'Your diagnosis case has been saved locally.' });
     } catch (error) {
       console.error('Diagnosis failed:', error);
-      toast({
-        title: 'An Error Occurred',
-        description: 'Failed to get diagnosis. Please check the console for details.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Failed to generate diagnosis.', variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleCopy = (text: string, type: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: 'Copied', description: `${type.charAt(0).toUpperCase() + type.slice(1)} copied to clipboard.` });
+  };
+
+  const formatText = (text: string) => {
+    if (!text) return '';
+    return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br />');
   };
 
   const handleNewCase = () => {
@@ -240,30 +184,12 @@ export default function AiDiagnosisPage() {
     setFilePreviews([]);
     setResults(null);
     setClinicalAnswer(null);
-    setCurrentCaseId(null);
     setStructuredQuestion(null);
+    setCurrentCaseId(null);
     router.push('/ai-diagnosis');
   };
 
-  const handleCopy = (textToCopy: string, type: string) => {
-    const plainText = textToCopy.replace(/\*\*/g, '');
-    navigator.clipboard.writeText(plainText).then(
-      () => {
-        toast({ title: 'Copied to clipboard', description: `The ${type} has been copied.` });
-      },
-      (err) => {
-        toast({ title: 'Error', description: 'Failed to copy text.', variant: 'destructive' });
-        console.error('Could not copy text: ', err);
-      }
-    );
-  };
-
-  const formatText = (text: string) => {
-    if (!text) return '';
-    return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br />');
-  };
-
-  if (authLoading || (!user && !searchParams.get('caseId'))) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -272,175 +198,169 @@ export default function AiDiagnosisPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-7xl px-4 py-8">
-      
-      <div className="flex justify-end mb-4">
-        {(results || clinicalAnswer) && (
-          <Button variant="outline" onClick={handleNewCase}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New Case
-          </Button>
-        )}
-      </div>
-        {!results && !clinicalAnswer && !isLoading && (
-          <Card className="shadow-lg max-w-2xl mx-auto">
+    <div className="container mx-auto max-w-4xl px-4 py-8">
+      {!isConfigured && (
+        <Card className="mb-8 border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <Settings className="h-8 w-8 text-yellow-600" />
+              <div className="flex-1">
+                <h3 className="font-bold text-yellow-800 dark:text-yellow-200">Gemini API Key Required</h3>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  To use AI features, please provide your Google Gemini API key in the settings.
+                </p>
+              </div>
+              <Button asChild variant="outline" className="border-yellow-600 text-yellow-800 hover:bg-yellow-100 dark:text-yellow-200 dark:hover:bg-yellow-900/40">
+                <Link href="/settings">Go to Settings</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+        <div className="space-y-6">
+          <Card className="border shadow-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="text-primary" />
-                Patient Information
-              </CardTitle>
-              <CardDescription>
-                Provide clinical questions and patient history. You can also
-                upload or paste supporting documents.
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>AI Diagnosis</CardTitle>
+                  <CardDescription>Enter patient data or upload medical reports for analysis.</CardDescription>
+                </div>
+                <Button variant="ghost" size="icon" onClick={handleNewCase} title="New Case">
+                  <PlusCircle className="h-5 w-5" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="patient-data">
-                    Clinical Questions & Patient History
-                  </Label>
+                  <Label htmlFor="patientData">Patient Data / Clinical Notes</Label>
                   <Textarea
-                    id="patient-data"
-                    placeholder="e.g., A 58-year-old male presents with a two-week history of persistent, dry cough... You can also paste an image from your clipboard here."
-                    className="min-h-[200px]"
+                    id="patientData"
+                    placeholder="Describe symptoms, history, or paste clinical notes..."
                     value={patientData}
                     onChange={(e) => setPatientData(e.target.value)}
                     onPaste={handlePaste}
-                    disabled={isLoading}
+                    className="min-h-[200px] resize-none"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="documents">Supporting Documents</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="documents"
-                      type="file"
-                      multiple
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={handleFileChange}
-                      disabled={isLoading}
-                    />
+                  <Label>Supporting Documents (Images/PDFs)</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {filePreviews.map((preview, index) => (
+                      <div key={index} className="relative h-20 w-20 overflow-hidden rounded-md border">
+                        <img src={preview} alt={`Preview ${index}`} className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(index)}
+                          className="absolute right-1 top-1 rounded-full bg-black/50 p-1 text-white hover:bg-black/70"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    <label className="flex h-20 w-20 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed hover:bg-muted">
+                      <Upload className="h-6 w-6 text-muted-foreground" />
+                      <span className="text-[10px] text-muted-foreground">Upload</span>
+                      <input type="file" multiple accept="image/*,application/pdf" onChange={handleFileChange} className="hidden" />
+                    </label>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    Upload PDFs or images, or paste an image into the text area above.
-                  </p>
-                  {filePreviews.length > 0 && (
-                    <div className="mt-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
-                      {filePreviews.map((preview, i) => (
-                        <div key={i} className="relative aspect-square">
-                          <img
-                            src={preview}
-                            alt={`preview ${i}`}
-                            className="h-full w-full object-cover rounded-md border"
-                          />
-                          <Button
-                            variant="destructive"
-                            size="icon"
-                            className="absolute top-1 right-1 h-6 w-6 bg-red-500 text-white hover:bg-red-600"
-                            onClick={() => handleRemoveFile(i)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
-                <Button type="submit" className="w-full sm:w-auto" disabled={isLoading || (!patientData.trim() && filePreviews.length === 0)}>
+                <Button type="submit" className="w-full" disabled={isLoading || (!patientData.trim() && files.length === 0)}>
                   {isLoading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Analyzing...
+                    </>
                   ) : (
-                    <Upload className="mr-2 h-4 w-4" />
+                    <>
+                      <BrainCircuit className="mr-2 h-4 w-4" />
+                      Generate Diagnosis
+                    </>
                   )}
-                  Analyze and Diagnose
                 </Button>
               </form>
             </CardContent>
           </Card>
-        )}
 
-        {isLoading && !results && !clinicalAnswer && (
-          <Card className="shadow-lg max-w-2xl mx-auto">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                Diagnosing in process...
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">
-                Please wait while the AI analyzes the patient data and generates a diagnosis.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-          <div className="space-y-6">
-            {structuredQuestion && (
-              <QuestionDisplay summary={structuredQuestion.summary} images={structuredQuestion.images} />
-            )}
-            {clinicalAnswer && clinicalAnswer.answer && (
-              <Card className="border shadow-sm">
-                  <CardHeader>
-                      <div className="flex w-full items-start justify-between gap-4">
-                          <div className="flex-grow">
-                              <CardTitle className="flex items-center gap-2">
-                                  <BrainCircuit className="text-primary"/>
-                                  Direct Answer
-                              </CardTitle>
-                              <CardDescription>Topic: {clinicalAnswer.topic}</CardDescription>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopy(clinicalAnswer.answer, 'answer')} aria-label="Copy answer">
-                                <Copy className="h-4 w-4" />
+          {structuredQuestion && (
+            <QuestionDisplay
+              question={structuredQuestion}
+              onCopy={() => handleCopy(structuredQuestion.summary, 'summary')}
+            />
+          )}
+
+          {clinicalAnswer && (
+            <Card className="border shadow-sm overflow-hidden">
+              <CardHeader className="bg-primary/5 border-b">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    Clinical Analysis
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleCopy(clinicalAnswer.answer, 'answer')}
+                    className="h-8 w-8"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-6">
+                <div className="prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: formatText(clinicalAnswer.answer) }}></div>
+
+                {clinicalAnswer.reasoning && (
+                  <Accordion type="single" collapsible className="mt-6">
+                    <AccordionItem value="reasoning" className="border-none">
+                      <AccordionTrigger>
+                        <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-primary">
+                          <Lightbulb className="h-4 w-4" />
+                          Click here to see the detailed analysis
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="mt-2 rounded-md border border-border bg-reasoning text-reasoning-foreground p-4">
+                          <div className="flex items-start justify-between">
+                            <h4 className="font-semibold text-foreground mb-2 flex-grow">
+                              Reasoning
+                            </h4>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleCopy(clinicalAnswer.reasoning, 'reasoning')}
+                              className="h-8 w-8 flex-shrink-0 -mr-2 -mt-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              aria-label="Copy reasoning"
+                            >
+                              <Copy className="h-4 w-4" />
                             </Button>
                           </div>
-                      </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{__html: formatText(clinicalAnswer.answer)}}></div>
-                      {clinicalAnswer.reasoning && (
-                          <Accordion type="single" collapsible className="w-full">
-                              <AccordionItem value="item-1" className="border-b-0">
-                                  <AccordionTrigger>
-                                      <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-primary">
-                                          <Lightbulb className="h-4 w-4" />
-                                          Click here to see the detailed analysis
-                                      </div>
-                                  </AccordionTrigger>
-                                  <AccordionContent>
-                                      <div className="mt-2 rounded-md border border-border bg-reasoning text-reasoning-foreground p-4">
-                                          <div className="flex items-start justify-between">
-                                              <h4 className="font-semibold text-foreground mb-2 flex-grow">
-                                                  Reasoning
-                                              </h4>
-                                              <Button
-                                                  variant="ghost"
-                                                  size="icon"
-                                                  onClick={() => handleCopy(clinicalAnswer.reasoning, 'reasoning')}
-                                                  className="h-8 w-8 flex-shrink-0 -mr-2 -mt-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                                  aria-label="Copy reasoning"
-                                              >
-                                                  <Copy className="h-4 w-4" />
-                                              </Button>
-                                          </div>
-                                          <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{__html: formatText(clinicalAnswer.reasoning)}}></div>
-                                      </div>
-                                  </AccordionContent>
-                              </AccordionItem>
-                          </Accordion>
-                      )}
-                  </CardContent>
-                </Card>
-            )}
-          </div>
-          <div className="space-y-6">
-            {results && results.length > 0 && results.map((diag, index) => (
-              <DiagnosisCard key={index} diagnosis={diag} />
-            ))}
-          </div>
+                          <div className="prose prose-sm max-w-none text-muted-foreground" dangerouslySetInnerHTML={{ __html: formatText(clinicalAnswer.reasoning) }}></div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+        <div className="space-y-6">
+          {results && results.length > 0 && results.map((diag, index) => (
+            <DiagnosisCard key={index} diagnosis={diag} />
+          ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+export default function AiDiagnosisPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
+      <AiDiagnosisContent />
+    </Suspense>
   );
 }

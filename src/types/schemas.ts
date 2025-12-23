@@ -1,4 +1,4 @@
-import { z } from 'genkit';
+import { z } from 'zod';
 
 export const ParagraphSchema = z.object({
   type: z.enum(['paragraph']),

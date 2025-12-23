@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { Analytics } from "@vercel/analytics/next"
 import { Inter } from 'next/font/google';
 import { Toaster } from '@/components/ui/toaster';
 import Header from '@/components/Header';
 import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
+import { SettingsProvider } from '@/context/SettingsContext';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
@@ -30,13 +30,15 @@ export default function RootLayout({
         )}
       >
         <ThemeProvider>
-          <AuthProvider>
+          <SettingsProvider>
+            <AuthProvider>
               <div className="relative flex min-h-screen flex-col bg-background text-foreground">
-              <Header />
-              <main className="flex-1">{children}</main>
+                <Header />
+                <main className="flex-1">{children}</main>
               </div>
               <Toaster />
-          </AuthProvider>
+            </AuthProvider>
+          </SettingsProvider>
         </ThemeProvider>
       </body>
     </html>
