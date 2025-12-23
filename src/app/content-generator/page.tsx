@@ -71,6 +71,10 @@ function ContentGeneratorContent() {
             setSelectedTopics(caseData.outputData?.outline || []);
             setUsedTopics(caseData.outputData?.usedTopics || []);
             setSuggestedTopics(caseData.outputData?.suggestedTopics || []);
+            // Load structuredQuestion to show images with answer
+            if (caseData.outputData?.structuredQuestion) {
+              setStructuredQuestion(caseData.outputData.structuredQuestion);
+            }
 
             // If slides exist, ensure we show the slide editor
             if (caseData.outputData?.slides && caseData.outputData.slides.length > 0) {
@@ -241,7 +245,9 @@ function ContentGeneratorContent() {
       if (caseData) {
         caseData.outputData = {
           ...caseData.outputData,
-          outline: data.outline
+          outline: data.outline,
+          // Preserve structuredQuestion so images persist
+          structuredQuestion: structuredQuestion
         };
         await LocalDataService.saveCase(caseData);
       }
@@ -277,7 +283,9 @@ function ContentGeneratorContent() {
           slides: generatedSlides,
           outline: presentationOutline,
           usedTopics: selectedTopics,
-          suggestedTopics: presentationOutline
+          suggestedTopics: presentationOutline,
+          // Preserve structuredQuestion so images persist
+          structuredQuestion: structuredQuestion
         };
         await LocalDataService.saveCase(caseData);
       }
