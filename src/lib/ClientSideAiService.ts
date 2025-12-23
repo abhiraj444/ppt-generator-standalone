@@ -14,7 +14,7 @@ export const ClientSideAiService = {
       
       **Constraints:**
       1. Output MUST be a valid JSON array of objects.
-      2. Each object must have: "diagnosis", "confidenceLevel", "reasoning", and "missingInformation" (which is an object with "information" and "tests" arrays).
+      2. Each object must have: "diagnosis", "confidenceLevel" (a number between 0 and 1, e.g., 0.85), "reasoning", and "missingInformation" (which is an object with "information" and "tests" arrays).
     `;
 
         if (patientData) prompt += `\n\nPatient Data: ${patientData}`;
@@ -49,7 +49,7 @@ export const ClientSideAiService = {
 
         return [{
             diagnosis: "AI Analysis Result",
-            confidenceLevel: "Medium",
+            confidenceLevel: 0.5,
             reasoning: text,
             missingInformation: { information: [], tests: [] }
         }];
@@ -159,28 +159,106 @@ export const ClientSideAiService = {
 
     async generateSlideContent(apiKey: string, input: any) {
         const model = await this.getGeminiModel(apiKey);
-        const prompt = `
-      You are an expert in medical education. Generate detailed slide content for a presentation.
-      
-      Main Topic: ${input.topic}
-      Topics for Slide Generation: ${input.selectedTopics.join(', ')}
-      
-      **Constraints:**
-      1. Output MUST be a valid JSON array of slide objects.
-      2. Each slide object: { "title": "...", "content": [ { "type": "paragraph" | "bullet_list" | "table", ... } ] }
-    `;
+        const prompt = `You are an expert in medical education. Your task is to generate detailed slide content for a presentation based on a provided list of topics.
+
+**Source Information:**
+- **Main Topic:** ${input.topic}
+${input.fullQuestion ? `- **Full Original Question:** ${input.fullQuestion}` : ''}
+${input.fullAnswer ? `- **Full Original Answer:** ${input.fullAnswer}` : ''}
+${input.fullReasoning ? `- **Full Original Reasoning:** ${input.fullReasoning}` : ''}
+
+**Topics for Slide Generation:**
+${input.selectedTopics.map((t: string) => `- ${t}`).join('\n')}
+
+**Core Instructions:**
+
+1.  **Generate one slide for EACH topic listed in "Topics for Slide Generation".** The output must be a JSON array containing exactly one slide object per topic.
+2.  **Handle the "Clinical Question, Answer, and Analysis Summary" topic:**
+    *   If this specific topic is in the list, the corresponding slide MUST be titled "Case Presentation".
+    *   The content for this slide MUST be generated using the "Full Original Question," "Full Original Answer," and a summary of the "Full Original Reasoning" provided above. Do not use any other information for this slide.
+3.  **For all other topics:**
+    *   Generate technically rich, detailed, and condensed content suitable for a professional medical audience.
+    *   Fill each slide with substantial information. Use tables frequently to compare/contrast concepts or summarize data.
+    *   Do **NOT** include a "Conclusion" or "Summary" slide unless it is explicitly requested as a topic.
+
+**Formatting & Table Rules:**
+Format the entire output as a JSON array of slide objects. Each slide object must conform to the following rules:
+1.  **Slide Object**: Each slide is an object with a "title" (string) and a "content" (array of content items). The title must exactly match the topic from the input list, except for the special "Case Presentation" title.
+2.  **Content Breakdown**: Deconstruct complex topics into multiple small, distinct points. Use 'bullet_list' or 'numbered_list' extensively. Each item in a list should be concise. Avoid long paragraphs; use lists to convey information concisely. For each slide, aim for a maximum of 6-8 distinct points (bullets, list items, or table rows) to ensure clarity and readability.
+3.  **Content Array**: The "content" array contains different types of content objects. Do NOT put too much content on a single slide; create more slides if a topic is complex. Each content item must be an object with a "type" field.
+4.  **Bolding**: For "paragraph" and list "items", use the 'bold' array to specify substrings of the 'text' that should be bolded. **Do NOT use markdown like '**text**' inside any text fields.**
+5.  **Table Rules (CRITICAL):**
+    *   When creating a "table" content item, the number of items in each 'cells' array inside 'rows' MUST be exactly equal to the number of items in the 'headers' array.
+    *   Before outputting the JSON, you MUST validate every table. If a row has a different number of cells than the header, you MUST correct it. **This is a strict requirement; failure to comply will result in an error.**
+
+Supported "type" values for content items:
+- **"paragraph"**: For a block of text. This should be used sparingly.
+  - "text": The full paragraph string.
+  - "bold": (Optional) An array of substrings from "text" that should be formatted as bold.
+- **"bullet_list"**: For an unordered list.
+  - "items": An array of list item objects. Each object must have a "text" field and can have an optional "bold" array.
+- **"numbered_list"**: For an ordered list.
+  - "items": An array of list item objects. Each object must have a "text" field and can have an optional "bold" array.
+- **"note"**: For a brief, supplementary note.
+  - "text": The content of the note.
+- **"table"**: For tabular data.
+  - "headers": An array of strings for the table column headers.
+  - "rows": An array of row objects. Each object has a "cells" property, which is an array of strings for that row.
+
+Example:
+[
+  {
+    "title": "Introduction to Condition X",
+    "content": [
+      { "type": "paragraph", "text": "Condition X is a chronic inflammatory disease affecting the joints.", "bold": ["Condition X", "chronic inflammatory disease"] },
+      { "type": "bullet_list", "items": [ { "text": "Symptom A" }, { "text": "Symptom B is more complex.", "bold": ["Symptom B"] } ] }
+    ]
+  },
+  {
+    "title": "Diagnostic Criteria",
+    "content": [
+       { "type": "table", "headers": ["Criteria", "Description"], "rows": [{ "cells": ["Criteria 1", "Details for 1"] }, { "cells": ["Criteria 2", "Details for 2"] }] }
+    ]
+  }
+]
+
+Produce ONLY the JSON array and nothing else. Ensure it is valid JSON.
+`;
 
         const result = await model.generateContent(prompt);
         const text = result.response.text();
 
         try {
+            // Try to extract JSON array from the response
             const jsonMatch = text.match(/\[[\s\S]*\]/);
-            if (jsonMatch) return JSON.parse(jsonMatch[0]);
+            if (jsonMatch) {
+                let jsonText = jsonMatch[0];
+
+                // Clean up common LLM formatting issues that break JSON parsing
+                // Remove escaped newlines within strings that break JSON structure
+                jsonText = jsonText.replace(/\\n\s*/g, ' ');
+                // Normalize multiple spaces to single space
+                jsonText = jsonText.replace(/\s+/g, ' ');
+                // Remove spaces before colons and commas
+                jsonText = jsonText.replace(/\s*:\s*/g, ':');
+                jsonText = jsonText.replace(/\s*,\s*/g, ',');
+
+                const parsed = JSON.parse(jsonText);
+                return parsed;
+            }
         } catch (e) {
             console.error('Failed to parse slides JSON:', e);
+            console.error('Raw LLM response:', text);
         }
 
-        return input.selectedTopics.map((t: string) => ({ title: t, content: [{ type: 'paragraph', text: 'Content generation failed.' }] }));
+        // Fallback: return placeholder slides
+        return input.selectedTopics.map((t: string) => ({
+            title: t,
+            content: [{
+                type: 'paragraph',
+                text: 'Content generation failed. Please try again or select fewer topics.'
+            }]
+        }));
     },
 
     async suggestTopics(apiKey: string, input: { question?: string, topic?: string, existingTopics: string[] }) {
@@ -207,10 +285,31 @@ export const ClientSideAiService = {
     async generateSingleSlide(apiKey: string, topic: string) {
         const model = await this.getGeminiModel(apiKey);
         const prompt = `
-      Generate the content for a single medical presentation slide.
-      Topic: ${topic}
-      
-      Output a JSON object: { "title": "${topic}", "content": [...] }
+      You are an expert in medical education. Your task is to generate the content for a single presentation slide based on the provided topic.
+
+      **Topic:** ${topic}
+
+      **Instructions:**
+      1.  The slide's "title" must be the exact topic provided above.
+      2.  The "content" should be technically rich, detailed, and suitable for a professional medical audience.
+      3.  Break down the topic into multiple small, distinct points. Use bullet lists, numbered lists, or tables extensively. Avoid long paragraphs.
+      4.  Format the entire output as a single JSON object that conforms to the slide schema, having a "title" and a "content" array.
+      5.  Do NOT include a "Conclusion" or "Summary" slide. The presentation should end on a technical note.
+
+      **Content Schema:**
+      -   \`{"type": "paragraph", "text": "...", "bold": ["...", "..."]}\`
+      -   \`{"type": "bullet_list", "items": [{"text": "...", "bold": ["..."]}, ...]}\`
+      -   \`{"type": "numbered_list", "items": [{"text": "...", "bold": ["..."]}, ...]}\`
+      -   \`{"type": "note", "text": "..."}\`
+      -   \`{"type": "table", "headers": ["...", "..."], "rows": [{"cells": ["...", "..."]}, ...]}\`
+
+      **Critical Rules:**
+      - Each content item MUST have a "type" field
+      - For "paragraph" and list "items", use the "bold" array to specify substrings that should be bolded
+      - Do NOT use markdown like '**text**' inside any text fields
+      - For tables, ensure the number of cells in each row matches the number of headers
+
+      Produce the JSON object and nothing else.
     `;
 
         const result = await model.generateContent(prompt);

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { FileQuestion } from 'lucide-react';
 import Image from 'next/image';
+import { Capacitor } from '@capacitor/core';
 
 interface QuestionDisplayProps {
   summary: string;
@@ -41,12 +42,26 @@ const SimpleRenderer = ({ text }: { text: string | null | undefined }) => {
   );
 };
 
+// Helper function to get the correct image source based on platform
+const getImageSrc = (img: string) => {
+  // If it's already a data URI, use it directly
+  if (img.startsWith('data:')) {
+    return img;
+  }
+  // On mobile platforms, convert the file path
+  if (Capacitor.getPlatform() !== 'web') {
+    return Capacitor.convertFileSrc(img);
+  }
+  // On web, if it's not a data URI, it might be a URL - use as is
+  return img;
+};
+
 
 export function QuestionDisplay({ summary, images }: QuestionDisplayProps) {
   if (!summary) {
     return null;
   }
-  
+
   return (
     <Card className="border shadow-sm mb-6 bg-question text-question-foreground">
       <CardHeader>
@@ -68,7 +83,7 @@ export function QuestionDisplay({ summary, images }: QuestionDisplayProps) {
                   <DialogTrigger asChild>
                     <div className="aspect-square relative cursor-pointer hover:opacity-80 transition-opacity rounded-md overflow-hidden">
                       <Image
-                        src={img}
+                        src={getImageSrc(img)}
                         alt={`Submitted image ${index + 1}`}
                         fill
                         style={{ objectFit: 'cover' }}
@@ -84,7 +99,7 @@ export function QuestionDisplay({ summary, images }: QuestionDisplayProps) {
                       </DialogDescription>
                     </DialogHeader>
                     <img
-                      src={img}
+                      src={getImageSrc(img)}
                       alt={`Submitted image ${index + 1}`}
                       className="max-h-[85vh] w-auto rounded-lg mx-auto"
                     />

@@ -19,6 +19,7 @@ import { ClientSideAiService } from '@/lib/ClientSideAiService';
 import type { StructuredQuestion } from '@/types';
 import { QuestionDisplay } from '@/components/QuestionDisplay';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Skeleton } from '@/components/ui/skeleton';
 import Link from 'next/link';
 
 function ContentGeneratorContent() {
@@ -34,6 +35,8 @@ function ContentGeneratorContent() {
   const [presentationOutline, setPresentationOutline] = useState<string[] | null>(null);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [currentCaseId, setCurrentCaseId] = useState<string | null>(null);
+  const [usedTopics, setUsedTopics] = useState<string[]>([]);
+  const [suggestedTopics, setSuggestedTopics] = useState<string[]>([]);
 
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
@@ -66,6 +69,14 @@ function ContentGeneratorContent() {
             setSlides(caseData.outputData?.slides || null);
             setPresentationOutline(caseData.outputData?.outline || null);
             setSelectedTopics(caseData.outputData?.outline || []);
+            setUsedTopics(caseData.outputData?.usedTopics || []);
+            setSuggestedTopics(caseData.outputData?.suggestedTopics || []);
+
+            // If slides exist, ensure we show the slide editor
+            if (caseData.outputData?.slides && caseData.outputData.slides.length > 0) {
+              setSlides(caseData.outputData.slides);
+            }
+
             setCurrentCaseId(caseId);
             toast({ title: 'Case Loaded', description: `Successfully loaded case: ${caseData.title}` });
           }
@@ -150,7 +161,10 @@ function ContentGeneratorContent() {
           images: imageUrls,
           structuredQuestion: newStructuredQuestion,
         },
-        outputData: { result: response }
+        outputData: {
+          result: response,
+          structuredQuestion: newStructuredQuestion
+        }
       };
 
       const savedId = await LocalDataService.saveCase(caseData);
@@ -176,6 +190,7 @@ function ContentGeneratorContent() {
       const data = await ClientSideAiService.generatePresentationOutline(apiKey, { topic: topic.trim() });
       setPresentationOutline(data.outline);
       setSelectedTopics(data.outline);
+      setSuggestedTopics(data.outline);
       setResult({
         answer: `Outline generated for topic: **${topic}**. Select topics below and generate the presentation.`,
         topic: topic,
@@ -190,7 +205,13 @@ function ContentGeneratorContent() {
           mode: 'topic',
           topic: topic.trim(),
         },
-        outputData: { outline: data.outline }
+        outputData: {
+          outline: data.outline,
+          result: {
+            answer: `Outline generated for topic: **${topic}**. Select topics below and generate the presentation.`,
+            topic: topic.trim(),
+          }
+        }
       };
 
       const savedId = await LocalDataService.saveCase(caseData);
@@ -214,6 +235,16 @@ function ContentGeneratorContent() {
       });
       setPresentationOutline(data.outline);
       setSelectedTopics(data.outline);
+      setSuggestedTopics(data.outline);
+
+      const caseData = await LocalDataService.getCase(currentCaseId!);
+      if (caseData) {
+        caseData.outputData = {
+          ...caseData.outputData,
+          outline: data.outline
+        };
+        await LocalDataService.saveCase(caseData);
+      }
     } catch (error) {
       console.error('Outline generation failed:', error);
     } finally {
@@ -225,6 +256,10 @@ function ContentGeneratorContent() {
     if (!user || !apiKey || selectedTopics.length === 0) return;
     setIsLoading(true);
     try {
+      // Set placeholder slides first to show loading skeleton
+      const placeholders = selectedTopics.map(t => ({ title: t, content: [] }));
+      setSlides(placeholders);
+
       const generatedSlides = await ClientSideAiService.generateSlideContent(apiKey, {
         topic: result?.topic || topic,
         selectedTopics,
@@ -233,13 +268,16 @@ function ContentGeneratorContent() {
         fullReasoning: result?.reasoning
       });
       setSlides(generatedSlides);
+      setUsedTopics(selectedTopics);
 
       const caseData = await LocalDataService.getCase(currentCaseId!);
       if (caseData) {
         caseData.outputData = {
           ...caseData.outputData,
           slides: generatedSlides,
-          outline: presentationOutline
+          outline: presentationOutline,
+          usedTopics: selectedTopics,
+          suggestedTopics: presentationOutline
         };
         await LocalDataService.saveCase(caseData);
       }
@@ -321,6 +359,25 @@ function ContentGeneratorContent() {
                     onPaste={handlePaste}
                     className="min-h-[100px]"
                   />
+
+                  {/* Image preview section */}
+                  {imagePreviews.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {imagePreviews.map((preview, index) => (
+                        <div key={index} className="relative h-20 w-20 overflow-hidden rounded-md border">
+                          <img src={preview} alt={`Preview ${index}`} className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(index)}
+                            className="absolute right-1 top-1 rounded-full bg-black/50 p-1 text-white hover:bg-black/70"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <Input type="file" multiple accept="image/*" onChange={handleFileChange} />
                   <Button type="submit" disabled={isLoading || (!question.trim() && imageFiles.length === 0)}>
                     {isLoading ? <Loader2 className="animate-spin mr-2" /> : <Bot className="mr-2" />}
@@ -367,6 +424,14 @@ function ContentGeneratorContent() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Show question with images if available */}
+            {structuredQuestion && (
+              <QuestionDisplay
+                summary={structuredQuestion.summary}
+                images={structuredQuestion.images}
+              />
+            )}
+
             <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: formatText(result.answer) }}></div>
 
             {!slides && !presentationOutline && !isLoading && (
@@ -376,20 +441,36 @@ function ContentGeneratorContent() {
               </Button>
             )}
 
+            {/* Loading skeleton for outline generation */}
+            {isLoading && !presentationOutline && result && (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            )}
+
             {presentationOutline && !slides && (
               <div className="space-y-4 rounded-lg border p-4">
                 <h3 className="font-semibold">Select Topics for Presentation</h3>
                 <div className="grid grid-cols-1 gap-2">
-                  {presentationOutline.map((t, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedTopics.includes(t)}
-                        onChange={() => setSelectedTopics(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}
-                      />
-                      <span className="text-sm">{t}</span>
-                    </div>
-                  ))}
+                  {presentationOutline.map((t, i) => {
+                    const isUsed = usedTopics.includes(t);
+                    return (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isUsed || selectedTopics.includes(t)}
+                          disabled={isUsed}
+                          onChange={() => setSelectedTopics(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}
+                        />
+                        <span className={`text-sm ${isUsed ? 'text-muted-foreground line-through' : ''}`}>
+                          {t} {isUsed && '(Generated)'}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
                 <Button onClick={handleGeneratePresentation} disabled={selectedTopics.length === 0}>
                   Generate Presentation
@@ -402,13 +483,33 @@ function ContentGeneratorContent() {
                 initialSlides={slides}
                 topic={result.topic}
                 caseId={currentCaseId}
-                onSlidesUpdate={async (updated) => {
-                  setSlides(updated);
+                questionContext={question}
+                outline={presentationOutline || []}
+                initialSuggestedTopics={suggestedTopics}
+                initialUsedTopics={usedTopics}
+                onRefresh={() => handleGeneratePresentation()}
+                onNewCase={handleNewCase}
+                onUpdate={async (data) => {
                   const caseData = await LocalDataService.getCase(currentCaseId!);
-                  if (caseData) {
-                    caseData.outputData.slides = updated;
-                    await LocalDataService.saveCase(caseData);
+                  if (!caseData) return;
+
+                  const updatedOutputData = { ...caseData.outputData };
+
+                  if (data.slides) {
+                    setSlides(data.slides);
+                    updatedOutputData.slides = data.slides;
                   }
+                  if (data.suggestedTopics) {
+                    setSuggestedTopics(data.suggestedTopics);
+                    updatedOutputData.suggestedTopics = data.suggestedTopics;
+                  }
+                  if (data.usedTopics) {
+                    setUsedTopics(data.usedTopics);
+                    updatedOutputData.usedTopics = data.usedTopics;
+                  }
+
+                  caseData.outputData = updatedOutputData;
+                  await LocalDataService.saveCase(caseData);
                 }}
               />
             )}

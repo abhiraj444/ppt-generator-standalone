@@ -19,6 +19,7 @@ import type { StructuredQuestion } from '@/types';
 import { QuestionDisplay } from '@/components/QuestionDisplay';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import Link from 'next/link';
+import { Capacitor } from '@capacitor/core';
 
 function AiDiagnosisContent() {
   const [patientData, setPatientData] = useState('');
@@ -140,6 +141,7 @@ function AiDiagnosisContent() {
       setClinicalAnswer(answerResponse);
       const newStructuredQuestion = { summary: summaryResponse.summary, images: imageUrls };
       setStructuredQuestion(newStructuredQuestion);
+      setFilePreviews(imageUrls);
 
       const caseData: Partial<LocalCase> = {
         id: currentCaseId || undefined,
@@ -286,8 +288,8 @@ function AiDiagnosisContent() {
 
           {structuredQuestion && (
             <QuestionDisplay
-              question={structuredQuestion}
-              onCopy={() => handleCopy(structuredQuestion.summary, 'summary')}
+              summary={structuredQuestion.summary}
+              images={structuredQuestion.images}
             />
           )}
 

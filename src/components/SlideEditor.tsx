@@ -168,25 +168,23 @@ export function SlideEditor({
   topic: initialTopic,
   caseId,
   onRefresh,
-  onSlidesUpdate,
-  onNewCase,
+  initialUsedTopics,
+  onUpdate,
   questionContext,
   outline,
   initialSuggestedTopics,
-  initialUsedTopics,
-  onTopicsUpdate,
+  onNewCase,
 }: {
   initialSlides: Slide[];
   topic: string;
   caseId: string | null;
-  onRefresh: () => void;
-  onSlidesUpdate: (slides: Slide[]) => void;
-  onNewCase: () => void;
-  questionContext: string;
-  outline: string[];
-  initialSuggestedTopics: string[];
-  initialUsedTopics: string[];
-  onTopicsUpdate: (suggested: string[], used: string[]) => void;
+  onRefresh?: () => void;
+  initialUsedTopics?: string[];
+  onUpdate: (data: { slides?: Slide[]; suggestedTopics?: string[]; usedTopics?: string[] }) => void;
+  questionContext?: string;
+  outline?: string[];
+  initialSuggestedTopics?: string[];
+  onNewCase?: () => void;
 }) {
   const [slides, setSlides] = useState<Slide[]>(initialSlides);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
@@ -230,10 +228,10 @@ export function SlideEditor({
       const updatedUsedTopics = Array.from(new Set([...(initialUsedTopics || []), ...existingTopics]));
       if (updatedUsedTopics.length > (initialUsedTopics?.length || 0)) {
         setUsedTopics(updatedUsedTopics);
-        onTopicsUpdate(initialSuggestedTopics || [], updatedUsedTopics);
+        onUpdate({ usedTopics: updatedUsedTopics });
       }
     }
-  }, [initialSlides, initialUsedTopics, initialSuggestedTopics, onTopicsUpdate]);
+  }, [initialSlides, initialUsedTopics, onUpdate]);
 
   const handleSelectionChange = (index: number, checked: boolean) => {
     if (checked) {
@@ -268,7 +266,7 @@ export function SlideEditor({
 
       const updatedSuggestions = Array.from(new Set([...newTopicSuggestions, ...incomingTopics]));
       setNewTopicSuggestions(updatedSuggestions);
-      onTopicsUpdate(updatedSuggestions, usedTopics);
+      onUpdate({ suggestedTopics: updatedSuggestions });
 
     } catch (error) {
       console.error('Failed to suggest new topics:', error);
@@ -307,10 +305,18 @@ export function SlideEditor({
 
     const updatedSlidesWithPlaceholders = [...slides, ...placeholderSlides];
     setSlides(updatedSlidesWithPlaceholders);
-    onSlidesUpdate(updatedSlidesWithPlaceholders);
+    onUpdate({ slides: updatedSlidesWithPlaceholders });
 
     setIsModifying(true);
     setIsAddSectionModalOpen(false);
+
+    // Add new slide indices to loadingSlides
+    const startIndex = slides.length;
+    setLoadingSlides(prev => {
+      const next = new Set(prev);
+      topicsToGenerate.forEach((_, i) => next.add(startIndex + i));
+      return next;
+    });
 
     // Scroll to bottom to show new placeholders
     setTimeout(() => {
@@ -325,36 +331,40 @@ export function SlideEditor({
       const newSlides = await Promise.all(slidePromises);
 
       // Calculate the updated slides
-      let finalSlides: Slide[];
-      setSlides(currentSlides => {
-        const updatedSlides = [...currentSlides];
-        const startIndex = currentSlides.length - topicsToGenerate.length;
+      const updatedSlides = [...slides];
+      const startIndexForNew = slides.length;
 
-        // Replace placeholders with actual slides
-        newSlides.forEach((slide, index) => {
-          const targetIndex = startIndex + index;
-          if (targetIndex < updatedSlides.length) {
-            updatedSlides[targetIndex] = slide;
-          } else {
-            updatedSlides.push(slide);
-          }
-        });
-
-        finalSlides = updatedSlides;
-        return updatedSlides;
+      // Replace placeholders with actual slides
+      newSlides.forEach((slide, index) => {
+        const targetIndex = startIndexForNew + index;
+        if (targetIndex < updatedSlides.length) {
+          updatedSlides[targetIndex] = slide;
+        } else {
+          updatedSlides.push(slide);
+        }
       });
 
-      // Update parent component with final slides
-      onSlidesUpdate(finalSlides!);
+      setSlides(updatedSlides);
 
       const newUsedTopics = Array.from(new Set([...usedTopics, ...topicsToGenerate]));
       setUsedTopics(newUsedTopics);
-      onTopicsUpdate(newTopicSuggestions, newUsedTopics);
+
+      // Clear loading state for newly added slides
+      setLoadingSlides(new Set());
+
+      // Update everything in one go to prevent race conditions
+      onUpdate({
+        slides: updatedSlides,
+        usedTopics: newUsedTopics,
+        suggestedTopics: newTopicSuggestions
+      });
 
       toast({ title: 'Slides Added', description: `Successfully added ${newSlides.length} new slide(s).` });
     } catch (error) {
       console.error('Failed to add slides:', error);
       toast({ title: 'Error Adding Slides', description: 'Failed to generate slides.', variant: 'destructive' });
+      // Clear loading state on error as well
+      setLoadingSlides(new Set());
     } finally {
       setIsModifying(false);
     }
@@ -363,7 +373,7 @@ export function SlideEditor({
   const removeSlide = (index: number) => {
     const newSlides = slides.filter((_, i) => i !== index);
     setSlides(newSlides);
-    onSlidesUpdate(newSlides);
+    onUpdate({ slides: newSlides });
     setSelectedIndices((prev) =>
       prev.filter((i) => i !== index).map((i) => (i > index ? i - 1 : i))
     );
@@ -373,7 +383,7 @@ export function SlideEditor({
     const newSlides = slides.filter((_, index) => !selectedIndices.includes(index));
     const deletedCount = selectedIndices.length;
     setSlides(newSlides);
-    onSlidesUpdate(newSlides);
+    onUpdate({ slides: newSlides });
     setSelectedIndices([]);
     toast({
       title: 'Slides Deleted',
@@ -382,7 +392,7 @@ export function SlideEditor({
   };
 
   const handleRefreshClick = () => {
-    onRefresh();
+    onRefresh?.();
   };
 
   const handleModifySlides = async (action: 'expand_content' | 'replace_content' | 'expand_selected') => {
@@ -407,7 +417,7 @@ export function SlideEditor({
 
       if (Array.isArray(result) && result.length > 0) {
         setSlides(result);
-        onSlidesUpdate(result);
+        onUpdate({ slides: result });
         setSelectedIndices([]);
         setLoadingSlides(new Set()); // Reset loading state
         toast({
@@ -438,7 +448,7 @@ export function SlideEditor({
         const oldIndex = items.findIndex((item) => item.title === active.id);
         const newIndex = items.findIndex((item) => item.title === over.id);
         const newSlides = arrayMove(items, oldIndex, newIndex);
-        onSlidesUpdate(newSlides);
+        onUpdate({ slides: newSlides });
         return newSlides;
       });
     }

@@ -88,8 +88,8 @@ const BoldRenderer: React.FC<BoldRendererProps> = ({ text, bold = [], className 
   return (
     <span className={`${className} text-wrap mobile-text-wrap`}>
       {parts.map((part, i) =>
-        bold.includes(part) ? 
-          <strong key={i} className="font-bold text-white drop-shadow-sm">{part}</strong> : 
+        bold.includes(part) ?
+          <strong key={i} className="font-bold text-white drop-shadow-sm">{part}</strong> :
           part
       )}
     </span>
@@ -108,10 +108,10 @@ const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({ item, index, 
 
   const itemVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { 
-      opacity: 1, 
+    visible: {
+      opacity: 1,
       y: 0,
-      transition: { 
+      transition: {
         delay: index * 0.1,
         duration: 0.5,
         ease: "easeOut"
@@ -126,7 +126,7 @@ const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({ item, index, 
       animate="visible"
       className="group relative w-full max-w-full"
     >
-      <div className="relative overflow-hidden rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-all duration-300 hover:shadow-lg hover:shadow-black/20 w-full max-w-full">  
+      <div className="relative overflow-hidden rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-sm border border-white/20 hover:bg-white/15 transition-all duration-300 hover:shadow-lg hover:shadow-black/20 w-full max-w-full">
 
         {/* Content Type Indicator */}
         <div className={`absolute top-2 sm:top-3 left-2 sm:left-3 p-1.5 sm:p-2 rounded-lg ${accentClass} transition-all duration-300 group-hover:scale-110 flex-shrink-0`}>
@@ -144,8 +144,8 @@ const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({ item, index, 
 
           {item.type === 'bullet_list' && (
             <ul className="space-y-2 sm:space-y-3 w-full">
-              {item.items.map((listItem, i) => (
-                <motion.li 
+              {(item.items || []).map((listItem, i) => (
+                <motion.li
                   key={i}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -163,8 +163,8 @@ const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({ item, index, 
 
           {item.type === 'numbered_list' && (
             <ol className="space-y-2 sm:space-y-3 w-full">
-              {item.items.map((listItem, i) => (
-                <motion.li 
+              {(item.items || []).map((listItem, i) => (
+                <motion.li
                   key={i}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -187,7 +187,7 @@ const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({ item, index, 
               <Table className="min-w-full">
                 <TableHeader>
                   <TableRow className="border-white/20 bg-white/10">
-                    {item.headers.map((header, i) => (
+                    {(item.headers || []).map((header, i) => (
                       <TableHead key={i} className="text-white font-bold text-xs sm:text-sm border-white/20 px-2 sm:px-4 py-2 whitespace-nowrap">
                         {header}
                       </TableHead>
@@ -195,9 +195,9 @@ const ContentItemRenderer: React.FC<ContentItemRendererProps> = ({ item, index, 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {item.rows.map((row, i) => (
+                  {(item.rows || []).map((row, i) => (
                     <TableRow key={i} className="border-white/10 hover:bg-white/5">
-                      {row.cells.map((cell, j) => (
+                      {(row.cells || []).map((cell, j) => (
                         <TableCell key={j} className="text-white/90 text-xs sm:text-sm border-white/10 px-2 sm:px-4 py-2 break-words">
                           {cell}
                         </TableCell>
@@ -237,27 +237,27 @@ interface EnhancedSlideRendererProps {
   onDissolveComplete?: () => void;
 }
 
-export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({ 
-  slide, 
-  index, 
+export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
+  slide,
+  index,
   isSelected = false,
   isLoading = false,
   isDissolving = false,
   onDissolveComplete
 }) => {
   const { theme } = useTheme();
-  
+
   const isDark = theme === 'dark';
   const slideGradients = isDark ? darkModeGradients : lightModeGradients;
   const gradientClass = slideGradients[index % slideGradients.length];
-  
+
   const slideVariants = {
     hidden: { opacity: 0, scale: 0.95, y: 20 },
-    visible: { 
-      opacity: 1, 
-      scale: 1, 
+    visible: {
+      opacity: 1,
+      scale: 1,
       y: 0,
-      transition: { 
+      transition: {
         duration: 0.6,
         ease: "easeOut",
         staggerChildren: 0.1
@@ -278,7 +278,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
   };
 
   // Show loading state if slide has no content or if explicitly loading
-  const showLoadingState = isLoading || slide.content.length === 0;
+  const showLoadingState = isLoading || !slide.content || slide.content.length === 0;
 
   if (showLoadingState) {
     return (
@@ -297,7 +297,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
               </div>
             </div>
           </div>
-          
+
           {/* Loading Animation */}
           <div className="animate-pulse space-y-6">
             <div className="text-white/70 text-lg mb-4">Generating content...</div>
@@ -322,7 +322,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
               </div>
             </div>
           </div>
-          
+
           {/* Floating Animation Elements */}
           <div className="absolute top-4 right-4">
             <motion.div
@@ -331,7 +331,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
               className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full"
             />
           </div>
-          
+
           {/* Slide Number Badge */}
           <div className="absolute bottom-4 right-4">
             <div className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 border border-white/30">
@@ -351,14 +351,13 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
       variants={slideVariants}
       initial="hidden"
       animate="visible"
-      className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${gradientClass} shadow-2xl hover:shadow-3xl transition-all duration-500 border ${isDark ? 'border-white/10' : 'border-black/10'} ${
-        isSelected ? `ring-4 ${isDark ? 'ring-white/40' : 'ring-black/20'} scale-[1.02]` : ''
-      } w-full max-w-full mobile-slide overflow-x-hidden`}
+      className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${gradientClass} shadow-2xl hover:shadow-3xl transition-all duration-500 border ${isDark ? 'border-white/10' : 'border-black/10'} ${isSelected ? `ring-4 ${isDark ? 'ring-white/40' : 'ring-black/20'} scale-[1.02]` : ''
+        } w-full max-w-full mobile-slide overflow-x-hidden`}
       whileHover={{ y: -4, transition: { duration: 0.2 } }}
     >
       {/* Gradient Overlay */}
       <div className={`absolute inset-0 bg-gradient-to-t ${isDark ? 'from-black/30 via-transparent to-white/5' : 'from-black/10 via-transparent to-white/20'}`}></div>
-      
+
       {/* Decorative Elements */}
       <div className="absolute top-0 right-0 w-16 h-16 sm:w-32 sm:h-32 bg-white/5 rounded-full -translate-y-8 translate-x-8 sm:-translate-y-16 sm:translate-x-16"></div>
       <div className="absolute bottom-0 left-0 w-12 h-12 sm:w-24 sm:h-24 bg-black/10 rounded-full translate-y-6 -translate-x-6 sm:translate-y-12 sm:-translate-x-12"></div>
@@ -402,7 +401,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
           </div>
         </div>
       </div>
-      
+
       {/* Innovative Shimmer Overlay for Refresh/Expand */}
       {isRefreshing && (
         <motion.div
@@ -419,7 +418,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
               animate="animate"
               className="absolute inset-y-0 w-1 bg-gradient-to-b from-transparent via-white to-transparent opacity-80"
             />
-            
+
             {/* Pulsing Dots */}
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex space-x-2">
@@ -440,7 +439,7 @@ export const EnhancedSlideRenderer: React.FC<EnhancedSlideRendererProps> = ({
                 ))}
               </div>
             </div>
-            
+
             {/* Status Text */}
             <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
               <motion.div

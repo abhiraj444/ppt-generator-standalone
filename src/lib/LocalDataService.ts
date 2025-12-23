@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface LocalCase {
@@ -78,7 +79,13 @@ export const LocalDataService = {
     const path = `uploads/${userId}/${fileName}`;
 
     const base64Data = await this.fileToBase64(file);
-    
+
+    // On web platform, just return the data URI directly
+    if (Capacitor.getPlatform() === 'web') {
+      return base64Data;
+    }
+
+    // On mobile platforms, use Filesystem API
     try {
       await Filesystem.writeFile({
         path,
@@ -95,7 +102,7 @@ export const LocalDataService = {
       return result.uri;
     } catch (e) {
       console.error('Error saving file locally:', e);
-      // Fallback to Data URI for web/dev if Filesystem fails
+      // Fallback to Data URI if Filesystem fails
       return base64Data;
     }
   },
