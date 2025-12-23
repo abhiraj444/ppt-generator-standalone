@@ -57,7 +57,6 @@
     "file-saver": "^2.0.5",
     "firebase": "^11.9.1",
     "framer-motion": "^12.23.3",
-    "genkit": "^1.13.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "lucide-react": "^0.475.0",
