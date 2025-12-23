@@ -68,7 +68,8 @@ function ContentGeneratorContent() {
             setResult(caseData.outputData?.result || null);
             setSlides(caseData.outputData?.slides || null);
             setPresentationOutline(caseData.outputData?.outline || null);
-            setSelectedTopics(caseData.outputData?.outline || []);
+            // Load actual selected topics, not the entire outline
+            setSelectedTopics(caseData.outputData?.selectedTopics || []);
             setUsedTopics(caseData.outputData?.usedTopics || []);
             setSuggestedTopics(caseData.outputData?.suggestedTopics || []);
             // Load structuredQuestion to show images with answer
@@ -282,6 +283,7 @@ function ContentGeneratorContent() {
           ...caseData.outputData,
           slides: generatedSlides,
           outline: presentationOutline,
+          selectedTopics: selectedTopics,
           usedTopics: selectedTopics,
           suggestedTopics: presentationOutline,
           // Preserve structuredQuestion so images persist
@@ -459,7 +461,7 @@ function ContentGeneratorContent() {
               </div>
             )}
 
-            {presentationOutline && !slides && (
+            {presentationOutline && (!slides || slides.length === 0) && (
               <div className="space-y-4 rounded-lg border p-4">
                 <h3 className="font-semibold">Select Topics for Presentation</h3>
                 <div className="grid grid-cols-1 gap-2">
@@ -486,7 +488,7 @@ function ContentGeneratorContent() {
               </div>
             )}
 
-            {slides && (
+            {slides && slides.length > 0 && (
               <SlideEditor
                 initialSlides={slides}
                 topic={result.topic}

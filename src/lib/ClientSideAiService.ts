@@ -234,14 +234,11 @@ Produce ONLY the JSON array and nothing else. Ensure it is valid JSON.
             if (jsonMatch) {
                 let jsonText = jsonMatch[0];
 
-                // Clean up common LLM formatting issues that break JSON parsing
-                // Remove escaped newlines within strings that break JSON structure
-                jsonText = jsonText.replace(/\\n\s*/g, ' ');
-                // Normalize multiple spaces to single space
-                jsonText = jsonText.replace(/\s+/g, ' ');
-                // Remove spaces before colons and commas
-                jsonText = jsonText.replace(/\s*:\s*/g, ':');
-                jsonText = jsonText.replace(/\s*,\s*/g, ',');
+                // Clean up ONLY problematic escaped characters that break JSON
+                // Remove literal \n and \t that appear in the raw text (not in strings)
+                // This is more conservative than before - only fixes actual issues
+                jsonText = jsonText.replace(/\\n/g, ' ');
+                jsonText = jsonText.replace(/\\t/g, ' ');
 
                 const parsed = JSON.parse(jsonText);
                 return parsed;
